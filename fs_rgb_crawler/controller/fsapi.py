@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from urllib.parse import urlparse
 from .session import Session
 from fs_rgb_crawler.model.individual import Individual
 from fs_rgb_crawler.model.graph import Graph
@@ -16,6 +17,9 @@ PARENT_CHILD_RELATIONSHIP_TYPES = [
     "http://gedcomx.org/SociologicalParent",    # A fact about a sociological relationship between a parent and a child, but not definable in typical legal or biological terms.
     "http://gedcomx.org/SurrogateParent",       # A fact about a pregnancy surrogate relationship between a parent and a child.
 ]
+
+DEFAULT_PARENT_REL_TYPE='UntypedParent'
+DEFAULT_COUPLE_REL_TYPE='UntypedCouple'
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +44,14 @@ class FamilySearchAPI:
     def get_relationship(self, rel_id):
         return self.session.get_url(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
 
-    def get_relationship_type(self, rel, field):
-        type = None
+    def get_relationship_type(self, rel, field, default):
+        type = default
         if field in rel:
             for fact in rel[field]:
-                if type:
-                    logger.warning(f"Replacing fact: {type} with {fact['type']} for relationship id: {rel} ({field})")
-                type = fact['type']
+                new_type = urlparse(fact['type']).path.strip('/')
+                if type != default and type != new_type:
+                    logger.warning(f"Replacing fact: {type} with {new_type} for relationship id: {rel} ({field})")
+                type = new_type
         return type
 
     def get_relationships_from_id(self, graph, rel_id):
@@ -57,10 +62,10 @@ class FamilySearchAPI:
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if child and parent1:
-                    relationship_type = self.get_relationship_type(rel, "parent1Facts")
+                    relationship_type = self.get_relationship_type(rel, "parent1Facts", DEFAULT_PARENT_REL_TYPE)
                     graph.relationships[(child, parent1)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
                 if child and parent2:
-                    relationship_type = self.get_relationship_type(rel, "parent2Facts")
+                    relationship_type = self.get_relationship_type(rel, "parent2Facts", DEFAULT_PARENT_REL_TYPE)
                     graph.relationships[(child, parent2)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
 
     def add_individuals_to_graph(self, hopcount, graph, fids):
@@ -87,7 +92,7 @@ class FamilySearchAPI:
                         graph.add_to_frontier(person2)
                     if relationship_type == "http://gedcomx.org/Couple":
                         # we have the facts of the relationship already, no need to fetch them
-                        relationship_type = self.get_relationship_type(relationship, "facts")
+                        relationship_type = self.get_relationship_type(relationship, "facts", DEFAULT_COUPLE_REL_TYPE)
                         graph.relationships[(person1, person2)] = relationship_type if relationship_type else "http://gedcomx.org/Marriage"
                     elif relationship_type == "http://gedcomx.org/ParentChild":
                         # we don't know the relationship facts so we'll need to fetch them... just add
