@@ -75,12 +75,17 @@ class FamilySearchAPI:
 
         async def parse_person_data(loop, data):
             futures = set()
+            for relationship in parse_result_data(data):
+                futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, relationship))
+            _ = await asyncio.gather(*futures)
+
+        def parse_result_data(data):
+            fetch_facts = set()
             for person in data["persons"]:
-                working_on = graph.individuals[person["id"]] = Individual(person["id"], self)
+                working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hopcount
-                futures.add(loop.run_in_executor(None, working_on.add_data, person))
+                working_on.add_data(person)
             if "relationships" in data:
-                fetch_facts = set()
                 for relationship in data["relationships"]:
                     relationship_type = relationship["type"]
                     person1 = None
@@ -93,17 +98,18 @@ class FamilySearchAPI:
                     if relationship_type == "http://gedcomx.org/Couple":
                         # we have the facts of the relationship already, no need to fetch them
                         relationship_type = self.get_relationship_type(relationship, "facts", DEFAULT_COUPLE_REL_TYPE)
-                        graph.relationships[(person1, person2)] = relationship_type if relationship_type else "http://gedcomx.org/Marriage"
+                        graph.relationships[(
+                        person1, person2)] = relationship_type if relationship_type else "http://gedcomx.org/Marriage"
                     elif relationship_type == "http://gedcomx.org/ParentChild":
                         # we don't know the relationship facts so we'll need to fetch them... just add
                         # the relationship to the fetch_facts list
-                        fetch_facts.add(relationship["id"][2:])
+                        rel_id = relationship["id"][2:]
+                        if rel_id not in self.rel_set:
+                            self.rel_set.add(rel_id)
+                            fetch_facts.add(rel_id)
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
-                for fetch in fetch_facts:
-                    futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, fetch))
-            for future in futures:
-                await future
+            return fetch_facts
 
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
         loop = asyncio.new_event_loop()

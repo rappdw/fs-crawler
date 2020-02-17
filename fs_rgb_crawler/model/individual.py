@@ -2,30 +2,18 @@ from .name import Name
 
 
 class Individual:
-    """ GEDCOM individual class
-        :param fid' FamilySearch id
-        :param tree: a tree object
-        :param num: the GEDCOM identifier
-    """
 
     counter = 0
 
-    def __init__(self, fid=None, tree=None, num=None):
-        if num:
-            self.num = num
-        else:
-            Individual.counter += 1
-            self.num = Individual.counter
+    def __init__(self, fid=None):
+        Individual.counter += 1
+        self.num = Individual.counter
         self.fid = fid
-        self.tree = tree
         self.famc_fid = set()
         self.fams_fid = set()
         self.name = None
         self.gender = None
         self.living = None
-        self.parents = set()
-        self.spouses = set()
-        self.children = set()
         self.nicknames = set()
         self.birthnames = set()
         self.married = set()
