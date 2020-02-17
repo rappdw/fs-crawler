@@ -19,7 +19,7 @@ def main():
     )
     parser.add_argument("-u", "--username", metavar="<STR>", type=str, help="FamilySearch username", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str, help="FamilySearch password", required=True)
-    parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", type=str,
+    parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
         help="Starting list of individual FamilySearch IDs for the crawl")
     parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
         help="Number of hops from the seed set")
