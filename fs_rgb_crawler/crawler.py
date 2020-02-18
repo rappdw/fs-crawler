@@ -47,9 +47,11 @@ def main():
     except SystemExit:
         parser.print_help()
         sys.exit(2)
+    individuals = None
     if args.individuals:
-        for fid in args.individuals:
-            if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
+        individuals = [item for sublist in args.individuals for item in sublist]
+        for fid in individuals:
+             if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
                 sys.exit("Invalid FamilySearch ID: " + fid)
 
     args.username = args.username if args.username else input("Enter FamilySearch username: ")
@@ -85,7 +87,9 @@ def main():
 
     # add list of starting individuals to the family tree
     graph = Graph(fs)
-    todo = args.individuals if args.individuals else [fs.get_defaul_starting_id()]
+    if not individuals:
+        individuals = [fs.get_defaul_starting_id()]
+    todo = individuals
     for fsid in todo:
         graph.add_to_frontier(fsid)
 
