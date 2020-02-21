@@ -13,9 +13,9 @@ from fscrawler\
 
 def main():
     parser = argparse.ArgumentParser(
-        description="crawl - Crawl the FamilySearch tree and extract vertices and edges for ingestion into RedBlackGraph",
+        description="crawl-fs - Crawl the FamilySearch tree and extract vertices and edges for ingestion into RedBlackGraph",
         add_help=False,
-        usage="crawl -u username -p password [options]",
+        usage="crawl-fs -u username -p password [options]",
     )
     parser.add_argument("-u", "--username", metavar="<STR>", type=str, help="FamilySearch username", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str, help="FamilySearch password", required=True)
