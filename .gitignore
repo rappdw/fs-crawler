@@ -4,3 +4,5 @@
 *.settings
 __pycache__
 wheel
+build
+*.egg-info
