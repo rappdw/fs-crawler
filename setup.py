@@ -19,7 +19,7 @@ setup(name=package,
       long_description_content_type="text/markdown",
       author='Daniel Rapp',
       author_email='rappdw@gmail.com',
-      url='https://github.com/rappdw/fs-rgb-crawler',
+      url='https://github.com/rappdw/fs-crawler',
       license='GPLv3+',
       classifiers=[
             'Development Status :: 5 - Production/Stable',
