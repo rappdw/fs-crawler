@@ -2,8 +2,8 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 from .session import Session
-from fs_rgb_crawler.model.individual import Individual
-from fs_rgb_crawler.model.graph import Graph
+from fscrawler.model.individual import Individual
+from fscrawler.model.graph import Graph
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200

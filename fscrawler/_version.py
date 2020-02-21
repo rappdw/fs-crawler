@@ -42,8 +42,8 @@ def get_config():
     cfg.VCS = "git"
     cfg.style = "pep440"
     cfg.tag_prefix = ""
-    cfg.parentdir_prefix = "fs_rgb_crawler-"
-    cfg.versionfile_source = "fs_rgb_crawler/_version.py"
+    cfg.parentdir_prefix = "fscrawler-"
+    cfg.versionfile_source = "fscrawler/_version.py"
     cfg.verbose = False
     return cfg
 

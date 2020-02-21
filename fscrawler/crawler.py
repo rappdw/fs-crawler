@@ -7,8 +7,8 @@ import argparse
 
 from pathlib import Path
 
-from fs_rgb_crawler.controller import FamilySearchAPI
-from fs_rgb_crawler\
+from fscrawler.controller import FamilySearchAPI
+from fscrawler\
     .model.graph import Graph
 
 def main():

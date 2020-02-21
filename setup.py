@@ -4,7 +4,7 @@ from os import path
 from setuptools import setup
 import versioneer
 
-package = 'fs-rgb-crawler'
+package = 'fs-crawler'
 
 here = path.abspath(path.dirname(__file__))
 
@@ -33,10 +33,11 @@ setup(name=package,
       ],
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
-            'diskcache',
             'requests'
       ],
       entry_points={
-            'console_scripts': ['crawl-fs=fs_rgb_crawler.crawler:main'],
+            'console_scripts': [
+                  'crawl-fs = fscrawler.crawler:main'
+            ],
       }
 )
