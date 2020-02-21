@@ -37,6 +37,6 @@ setup(name=package,
             'requests'
       ],
       entry_points={
-            'console_scripts': ['getmyancestors=fsb_rgb_crawler.crawler:main'],
+            'console_scripts': ['crawl-fs=fs_rgb_crawler.crawler:main'],
       }
 )
