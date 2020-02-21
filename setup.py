@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from os import path
-from setuptools import setup
+from setuptools import setup, find_packages
 import versioneer
 
 package = 'fs-crawler'
@@ -21,6 +21,7 @@ setup(name=package,
       author_email='rappdw@gmail.com',
       url='https://github.com/rappdw/fs-crawler',
       license='GPLv3+',
+      packages=find_packages(exclude=['tests*']),
       classifiers=[
             'Development Status :: 5 - Production/Stable',
             'Intended Audience :: Developers',

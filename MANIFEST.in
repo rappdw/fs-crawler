@@ -1,2 +1,2 @@
 include versioneer.py
-include fs_rgb_crawler/_version.py
+include fscrawler/_version.py
