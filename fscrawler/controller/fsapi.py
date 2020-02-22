@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
+from fscrawler.model.cp_validator import ChildParentRelationshipValidator
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200
@@ -25,9 +26,11 @@ logger = logging.getLogger(__name__)
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, logfile=False, timeout=60):
+    def __init__(self, username, password, verbose=False, logfile=False, timeout=60, resolve_parent_child=True):
         self.session = Session(username, password, verbose, logfile, timeout)
+        self.resolve_parent_child = resolve_parent_child
         self.rel_set = set()
+        self.cp_validator = ChildParentRelationshipValidator()
 
     def get_counter(self):
         return self.session.counter
@@ -76,7 +79,8 @@ class FamilySearchAPI:
         async def parse_person_data(loop, data):
             futures = set()
             for relationship in parse_result_data(data):
-                futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, relationship))
+                if (self.resolve_parent_child):
+                    futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, relationship))
             _ = await asyncio.gather(*futures)
 
         def parse_result_data(data):
@@ -101,21 +105,25 @@ class FamilySearchAPI:
                         graph.relationships[(
                         person1, person2)] = relationship_type if relationship_type else "http://gedcomx.org/Marriage"
                     elif relationship_type == "http://gedcomx.org/ParentChild":
-                        # we don't know the relationship facts so we'll need to fetch them... just add
-                        # the relationship to the fetch_facts list
                         rel_id = relationship["id"][2:]
-                        if rel_id not in self.rel_set:
-                            self.rel_set.add(rel_id)
-                            fetch_facts.add(rel_id)
+                        parent = relationship["person1"]["resourceId"]
+                        child = relationship["person2"]["resourceId"]
+                        graph.relationships[(child, parent)] = DEFAULT_PARENT_REL_TYPE
+                        self.cp_validator.add(child, parent, rel_id)
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
+                fetch_facts = self.cp_validator.get_relationships_to_validate()
             return fetch_facts
 
+        total_count = len(fids)
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        count = 0
         while new_fids:
             data = self._get_persons(new_fids[:MAX_PERSONS])
+            count += MAX_PERSONS
+            logger.info(f"Retrieved {count} of {total_count} individuals")
             if data:
                 loop.run_until_complete(parse_person_data(loop, data))
             new_fids = new_fids[MAX_PERSONS:]

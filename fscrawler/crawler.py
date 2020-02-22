@@ -17,28 +17,28 @@ def main():
         add_help=False,
         usage="crawl-fs -u username -p password [options]",
     )
-    parser.add_argument("-u", "--username", metavar="<STR>", type=str, help="FamilySearch username", required=True)
-    parser.add_argument("-p", "--password", metavar="<STR>", type=str, help="FamilySearch password", required=True)
+    parser.add_argument("-u", "--username", metavar="<STR>", type=str, required=True,
+                        help="FamilySearch username")
+    parser.add_argument("-p", "--password", metavar="<STR>", type=str, required=True,
+                        help="FamilySearch password")
     parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
-        help="Starting list of individual FamilySearch IDs for the crawl")
+                        help="Starting list of individual FamilySearch IDs for the crawl")
     parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
-        help="Number of hops from the seed set")
+                        help="Number of hops from the seed set")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
-        help="Increase output verbosity [False]")
-    parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60, help="Timeout in seconds [60]")
+                        help="Increase output verbosity [False]")
+    parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60,
+                        help="Timeout in seconds [60]")
     parser.add_argument("--show-password", action="store_true", default=False,
-        help="Show password in .settings file [False]")
-    try:
-        parser.add_argument("-o", "--outdir", type=str,
-            help="output directory")
-        parser.add_argument("-b", "--basename", type=str,
-            help="basename for all output files")
-        parser.add_argument("-l", "--logfile", metavar="<FILE>", type=argparse.FileType("w", encoding="UTF-8"), default=False,
-            help="output log file [stderr]")
-    except TypeError:
-        sys.stderr.write("Python >= 3.4 is required to run this script\n")
-        sys.stderr.write("(see https://docs.python.org/3/whatsnew/3.4.html#argparse)\n")
-        sys.exit(2)
+                        help="Show password in .settings file [False]")
+    parser.add_argument("-o", "--outdir", type=str,
+                        help="output directory")
+    parser.add_argument("-d", "--dontresolve", action="store_true", default=False,
+                        help="don't resolve parent/child relationships to type")
+    parser.add_argument("-b", "--basename", type=str,
+                        help="basename for all output files")
+    parser.add_argument("-l", "--logfile", metavar="<FILE>", type=argparse.FileType("w", encoding="UTF-8"), default=False,
+                        help="output log file [stderr]")
 
     # extract arguments from the command line
     try:
@@ -81,7 +81,7 @@ def main():
 
     # initialize a FamilySearch session and a family tree object
     print("Login to FamilySearch...")
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.logfile, args.timeout)
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.logfile, args.timeout, not args.dontresolve)
     if not fs.is_logged_in():
         sys.exit(2)
 
@@ -97,14 +97,13 @@ def main():
     for i in range(args.hopcount):
         if len(graph.frontier) == 0:
             break
-        print(f"Downloading hop: {i}...")
+        print(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
         fs.process_hop(i, graph)
 
     graph.print_graph(out_dir, basename)
 
     print(f"Downloaded {str(len(graph.individuals))} individuals, {str(len(graph.frontier))} frontier,  "
           f"{str(round(time.time() - time_count))} seconds with {str(fs.get_counter())} HTTP requests.")
-
 
 if __name__ == "__main__":
     main()
