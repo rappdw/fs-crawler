@@ -26,11 +26,9 @@ logger = logging.getLogger(__name__)
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, logfile=False, timeout=60, resolve_parent_child=True):
+    def __init__(self, username, password, verbose=False, logfile=False, timeout=60):
         self.session = Session(username, password, verbose, logfile, timeout)
-        self.resolve_parent_child = resolve_parent_child
         self.rel_set = set()
-        self.cp_validator = ChildParentRelationshipValidator()
 
     def get_counter(self):
         return self.session.counter
@@ -66,25 +64,17 @@ class FamilySearchAPI:
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if child and parent1:
                     relationship_type = self.get_relationship_type(rel, "parent1Facts", DEFAULT_PARENT_REL_TYPE)
-                    graph.relationships[(child, parent1)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
+                    graph.relationships[(child, parent1)] = relationship_type
                 if child and parent2:
                     relationship_type = self.get_relationship_type(rel, "parent2Facts", DEFAULT_PARENT_REL_TYPE)
-                    graph.relationships[(child, parent2)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
+                    graph.relationships[(child, parent2)] = relationship_type
 
     def add_individuals_to_graph(self, hopcount, graph, fids):
         """ add individuals to the family tree
             :param fids: an iterable of fid
         """
 
-        async def parse_person_data(loop, data):
-            futures = set()
-            for relationship in parse_result_data(data):
-                if (self.resolve_parent_child):
-                    futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, relationship))
-            _ = await asyncio.gather(*futures)
-
         def parse_result_data(data):
-            fetch_facts = set()
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hopcount
@@ -109,26 +99,25 @@ class FamilySearchAPI:
                         parent = relationship["person1"]["resourceId"]
                         child = relationship["person2"]["resourceId"]
                         graph.relationships[(child, parent)] = DEFAULT_PARENT_REL_TYPE
-                        self.cp_validator.add(child, parent, rel_id)
+                        graph.cp_validator.add(child, parent, rel_id)
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
-                fetch_facts = self.cp_validator.get_relationships_to_validate()
-            return fetch_facts
 
         total_count = len(fids)
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         count = 0
         while new_fids:
             data = self._get_persons(new_fids[:MAX_PERSONS])
             count += MAX_PERSONS
             logger.info(f"Retrieved {count} of {total_count} individuals")
             if data:
-                loop.run_until_complete(parse_person_data(loop, data))
+                parse_result_data(data)
             new_fids = new_fids[MAX_PERSONS:]
 
     def process_hop(self, hopcount: int, graph: Graph):
         todo = graph.frontier.copy()
         graph.frontier.clear()
         self.add_individuals_to_graph(hopcount, graph, todo)
+
+    def resolve_relationships(self, relationships):
+        pass
