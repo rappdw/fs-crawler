@@ -9,7 +9,7 @@ from fscrawler.model.graph import Graph
 from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
 MAX_PERSONS = 200
-MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
+MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 400
 
 logger = logging.getLogger(__name__)
 
