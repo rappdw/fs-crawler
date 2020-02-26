@@ -31,12 +31,14 @@ class ChildParentRelationshipValidator:
         for rel_dict in self.relationships.values():
             father_count = 0
             mother_count = 0
+            parents_counted = set()
             for rel_id, parent_set in rel_dict.items():
                 if strict:
                     relationships_to_validate.add(rel_id)
                 else:
                     for parent in parent_set:
-                        if parent in individuals:
+                        if parent in individuals and parent not in parents_counted:
+                            parents_counted.add(parent)
                             if individuals[parent].gender in ['M', 'm']:
                                 father_count += 1
                             elif individuals[parent].gender in ['F', 'f']:

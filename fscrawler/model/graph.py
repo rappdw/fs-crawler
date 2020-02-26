@@ -3,9 +3,10 @@ from typing import Dict, Tuple, Set
 
 from .individual import Individual
 from .cp_validator import ChildParentRelationshipValidator
+from .relationship_types import DEFAULT_PARENT_REL_TYPE, UNSPECIFIED_PARENT_REL_TYPE, BIOLOGICL_PARENT
 
 
-REL_TYPES_TO_VALIDATE = ['UntypedParent', 'BiologicalParent']
+REL_TYPES_TO_VALIDATE = [DEFAULT_PARENT_REL_TYPE, BIOLOGICL_PARENT, UNSPECIFIED_PARENT_REL_TYPE]
 
 class Graph:
     """ Graph of individuals in FamilySeearch

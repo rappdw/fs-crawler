@@ -6,6 +6,8 @@ from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
+from ..model.relationship_types import DEFAULT_PARENT_REL_TYPE, UNSPECIFIED_PARENT_REL_TYPE, DEFAULT_COUPLE_REL_TYPE
+
 MAX_PERSONS = 200
 MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
 
@@ -18,9 +20,6 @@ PARENT_CHILD_RELATIONSHIP_TYPES = [
     "http://gedcomx.org/SociologicalParent",    # A fact about a sociological relationship between a parent and a child, but not definable in typical legal or biological terms.
     "http://gedcomx.org/SurrogateParent",       # A fact about a pregnancy surrogate relationship between a parent and a child.
 ]
-
-DEFAULT_PARENT_REL_TYPE='UntypedParent'
-DEFAULT_COUPLE_REL_TYPE='UntypedCouple'
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +59,10 @@ class FamilySearchAPI:
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if child and parent1:
-                    relationship_type = self.get_relationship_type(rel, "parent1Facts", DEFAULT_PARENT_REL_TYPE)
+                    relationship_type = self.get_relationship_type(rel, "parent1Facts", UNSPECIFIED_PARENT_REL_TYPE)
                     graph.relationships[(child, parent1)] = relationship_type
                 if child and parent2:
-                    relationship_type = self.get_relationship_type(rel, "parent2Facts", DEFAULT_PARENT_REL_TYPE)
+                    relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT_REL_TYPE)
                     graph.relationships[(child, parent2)] = relationship_type
 
     def add_individuals_to_graph(self, hopcount, graph, fids):
