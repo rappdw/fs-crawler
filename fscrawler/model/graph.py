@@ -52,13 +52,13 @@ class Graph:
         if invalid_relationships:
             edges_filename = out_dir / f"{basename}.invalid.edges.csv"
             with edges_filename.open("w") as file:
-                file.write('#source_vertex,#destination_vertex,type\n')
+                file.write('#source_vertex,destination_vertex,type\n')
                 for (src, dest), type in self.relationships.items():
                     if src in self.individuals and dest in self.individuals and src in invalid_relationships:
                         file.write(f"{src},{dest},{type}\n")
         edges_filename = out_dir / f"{basename}.edges.csv"
         with edges_filename.open("w") as file:
-            file.write('#source_vertex,#destination_vertex,type\n')
+            file.write('#source_vertex,destination_vertex,type\n')
             for (src, dest), type in self.relationships.items():
                 if src in self.individuals and dest in self.individuals and src not in invalid_relationships:
                     file.write(f"{src},{dest},{type}\n")
