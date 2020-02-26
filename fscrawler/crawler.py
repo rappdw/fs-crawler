@@ -33,12 +33,10 @@ def main():
                         help="Show password in .settings file [False]")
     parser.add_argument("-o", "--outdir", type=str,
                         help="output directory")
-    parser.add_argument("-d", "--dontresolve", action="store_true", default=False,
-                        help="don't resolve parent/child relationships to type")
+    parser.add_argument("-s", "--strictresolve", action="store_true", default=False,
+                        help="strict resolution of relationships")
     parser.add_argument("-b", "--basename", type=str,
                         help="basename for all output files")
-    parser.add_argument("-l", "--logfile", metavar="<FILE>", type=argparse.FileType("w", encoding="UTF-8"), default=False,
-                        help="output log file [stderr]")
 
     # extract arguments from the command line
     try:
@@ -81,7 +79,7 @@ def main():
 
     # initialize a FamilySearch session and a family tree object
     print("Login to FamilySearch...")
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.logfile, args.timeout, not args.dontresolve)
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout)
     if not fs.is_logged_in():
         sys.exit(2)
 
@@ -99,6 +97,11 @@ def main():
             break
         print(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
         fs.process_hop(i, graph)
+
+    # now that we've crawled all of the hops, see which relationships we need to validate
+    relationships_to_validate = graph.get_relationships_to_validate(args.strictresolve)
+    print(f"Validating {len(relationships_to_validate)} relationships...")
+    fs.resolve_relationships(graph, relationships_to_validate)
 
     graph.print_graph(out_dir, basename)
 

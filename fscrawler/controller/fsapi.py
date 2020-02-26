@@ -4,10 +4,12 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-from fscrawler.model.cp_validator import ChildParentRelationshipValidator
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
+from ..model.relationship_types import DEFAULT_PARENT_REL_TYPE, UNSPECIFIED_PARENT_REL_TYPE, DEFAULT_COUPLE_REL_TYPE
+
 MAX_PERSONS = 200
+MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
 
 PARENT_CHILD_RELATIONSHIP_TYPES = [
     "http://gedcomx.org/AdoptiveParent",        # A fact about an adoptive relationship between a parent and a child.
@@ -19,18 +21,13 @@ PARENT_CHILD_RELATIONSHIP_TYPES = [
     "http://gedcomx.org/SurrogateParent",       # A fact about a pregnancy surrogate relationship between a parent and a child.
 ]
 
-DEFAULT_PARENT_REL_TYPE='UntypedParent'
-DEFAULT_COUPLE_REL_TYPE='UntypedCouple'
-
 logger = logging.getLogger(__name__)
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, logfile=False, timeout=60, resolve_parent_child=True):
-        self.session = Session(username, password, verbose, logfile, timeout)
-        self.resolve_parent_child = resolve_parent_child
+    def __init__(self, username, password, verbose=False, timeout=60):
+        self.session = Session(username, password, verbose, timeout)
         self.rel_set = set()
-        self.cp_validator = ChildParentRelationshipValidator()
 
     def get_counter(self):
         return self.session.counter
@@ -44,9 +41,6 @@ class FamilySearchAPI:
     def _get_persons(self, fids):
         return self.session.get_url("/platform/tree/persons.json?pids=" + ",".join(fids))
     
-    def get_relationship(self, rel_id):
-        return self.session.get_url(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
-
     def get_relationship_type(self, rel, field, default):
         type = default
         if field in rel:
@@ -57,34 +51,26 @@ class FamilySearchAPI:
                 type = new_type
         return type
 
-    def get_relationships_from_id(self, graph, rel_id):
-        data = self.get_relationship(rel_id)
+    async def get_relationships_from_id(self, graph, rel_id):
+        data = await self.session.get_urla(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if child and parent1:
-                    relationship_type = self.get_relationship_type(rel, "parent1Facts", DEFAULT_PARENT_REL_TYPE)
-                    graph.relationships[(child, parent1)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
+                    relationship_type = self.get_relationship_type(rel, "parent1Facts", UNSPECIFIED_PARENT_REL_TYPE)
+                    graph.relationships[(child, parent1)] = relationship_type
                 if child and parent2:
-                    relationship_type = self.get_relationship_type(rel, "parent2Facts", DEFAULT_PARENT_REL_TYPE)
-                    graph.relationships[(child, parent2)] = relationship_type if relationship_type else "http://gedcomx.org/BiologicalParent"
+                    relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT_REL_TYPE)
+                    graph.relationships[(child, parent2)] = relationship_type
 
     def add_individuals_to_graph(self, hopcount, graph, fids):
         """ add individuals to the family tree
             :param fids: an iterable of fid
         """
 
-        async def parse_person_data(loop, data):
-            futures = set()
-            for relationship in parse_result_data(data):
-                if (self.resolve_parent_child):
-                    futures.add(loop.run_in_executor(None, self.get_relationships_from_id, graph, relationship))
-            _ = await asyncio.gather(*futures)
-
         def parse_result_data(data):
-            fetch_facts = set()
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hopcount
@@ -109,26 +95,32 @@ class FamilySearchAPI:
                         parent = relationship["person1"]["resourceId"]
                         child = relationship["person2"]["resourceId"]
                         graph.relationships[(child, parent)] = DEFAULT_PARENT_REL_TYPE
-                        self.cp_validator.add(child, parent, rel_id)
+                        graph.cp_validator.add(child, parent, rel_id)
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
-                fetch_facts = self.cp_validator.get_relationships_to_validate()
-            return fetch_facts
 
         total_count = len(fids)
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         count = 0
         while new_fids:
             data = self._get_persons(new_fids[:MAX_PERSONS])
             count += MAX_PERSONS
             logger.info(f"Retrieved {count} of {total_count} individuals")
             if data:
-                loop.run_until_complete(parse_person_data(loop, data))
+                parse_result_data(data)
             new_fids = new_fids[MAX_PERSONS:]
 
     def process_hop(self, hopcount: int, graph: Graph):
         todo = graph.frontier.copy()
         graph.frontier.clear()
         self.add_individuals_to_graph(hopcount, graph, todo)
+
+    def resolve_relationships(self, graph, relationships):
+        new_rel_ids = [rel_id for rel_id in relationships]
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        while new_rel_ids:
+            coroutines = [self.get_relationships_from_id(graph, rel_id) for idx, rel_id in enumerate(new_rel_ids) if idx < MAX_CONCURRENT_RELATIONSHIP_REQUESTS]
+            loop.run_until_complete(asyncio.gather(*coroutines))
+            new_rel_ids = new_rel_ids[MAX_CONCURRENT_RELATIONSHIP_REQUESTS:]
+

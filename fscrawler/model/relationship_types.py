@@ -1,0 +1,4 @@
+DEFAULT_PARENT_REL_TYPE= 'UntypedParent'
+UNSPECIFIED_PARENT_REL_TYPE='UnspecifiedParentType'
+DEFAULT_COUPLE_REL_TYPE='UntypedCouple'
+BIOLOGICL_PARENT='BiologicalParent'
