@@ -1,10 +1,8 @@
-import asyncio
 import logging
 from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-from fscrawler.model.cp_validator import ChildParentRelationshipValidator
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200
@@ -26,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, logfile=False, timeout=60):
-        self.session = Session(username, password, verbose, logfile, timeout)
+    def __init__(self, username, password, verbose=False, timeout=60):
+        self.session = Session(username, password, verbose, timeout)
         self.rel_set = set()
 
     def get_counter(self):

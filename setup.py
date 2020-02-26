@@ -34,7 +34,7 @@ setup(name=package,
       ],
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
-            'requests'
+            'httpx'
       ],
       entry_points={
             'console_scripts': [

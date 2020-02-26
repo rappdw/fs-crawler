@@ -37,8 +37,6 @@ def main():
                         help="strict resolution of relationships")
     parser.add_argument("-b", "--basename", type=str,
                         help="basename for all output files")
-    parser.add_argument("-l", "--logfile", metavar="<FILE>", type=argparse.FileType("w", encoding="UTF-8"), default=False,
-                        help="output log file [stderr]")
 
     # extract arguments from the command line
     try:
@@ -81,7 +79,7 @@ def main():
 
     # initialize a FamilySearch session and a family tree object
     print("Login to FamilySearch...")
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.logfile, args.timeout)
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout)
     if not fs.is_logged_in():
         sys.exit(2)
 

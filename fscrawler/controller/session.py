@@ -1,24 +1,24 @@
 import sys
 import time
 
-import requests
+import httpx as requests
+
 
 class Session:
     """ Create a FamilySearch session
         :param username and password: valid FamilySearch credentials
         :param verbose: True to active verbose mode
-        :param logfile: a file object or similar
         :param timeout: time before retry a request
     """
 
-    def __init__(self, username, password, verbose=False, logfile=False, timeout=60):
+    def __init__(self, username, password, verbose=False, timeout=60):
         self.username = username
         self.password = password
         self.verbose = verbose
-        self.logfile = logfile
         self.timeout = timeout
         self.fid = self.lang = self.display_name = None
         self.counter = 0
+        self.client = None
         self.logged = self.login()
 
     def write_log(self, text):
@@ -26,8 +26,6 @@ class Session:
         log = "[%s]: %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), text)
         if self.verbose:
             sys.stderr.write(log)
-        if self.logfile:
-            self.logfile.write(log)
 
     def login(self):
         """ retrieve FamilySearch session ID
@@ -65,13 +63,10 @@ class Session:
                 url = r.headers["Location"]
                 self.write_log("Downloading: " + url)
                 r = requests.get(url, allow_redirects=False)
-                self.fssessionid = r.cookies["fssessionid"]
+                fssessionid_ = r.cookies["fssessionid"]
+                self.client = requests.Client(cookies={"fssessionid": fssessionid_})
             except requests.exceptions.ReadTimeout:
                 self.write_log("Read timed out")
-                continue
-            except requests.exceptions.ConnectionError:
-                self.write_log("Connection aborted")
-                time.sleep(self.timeout)
                 continue
             except requests.exceptions.HTTPError:
                 self.write_log("HTTPError")
@@ -85,7 +80,7 @@ class Session:
                 self.write_log("ValueError")
                 time.sleep(self.timeout)
                 continue
-            self.write_log("FamilySearch session id: " + self.fssessionid)
+            self.write_log("FamilySearch session id: " + fssessionid_)
             self.set_current()
             return True
 
@@ -95,17 +90,12 @@ class Session:
         while True:
             try:
                 self.write_log("Downloading: " + url)
-                r = requests.get(
+                r = self.client.get(
                     "https://familysearch.org" + url,
-                    cookies={"fssessionid": self.fssessionid},
                     timeout=self.timeout,
                 )
             except requests.exceptions.ReadTimeout:
                 self.write_log("Read timed out")
-                continue
-            except requests.exceptions.ConnectionError:
-                self.write_log("Connection aborted")
-                time.sleep(self.timeout)
                 continue
             self.write_log("Status code: %s" % r.status_code)
             if r.status_code == 204:
