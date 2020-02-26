@@ -101,7 +101,7 @@ def main():
     # now that we've crawled all of the hops, see which relationships we need to validate
     relationships_to_validate = graph.get_relationships_to_validate(args.strictresolve)
     print(f"Validating {len(relationships_to_validate)} relationships...")
-    fs.resolve_relationships(relationships_to_validate)
+    fs.resolve_relationships(graph, relationships_to_validate)
 
     graph.print_graph(out_dir, basename)
 

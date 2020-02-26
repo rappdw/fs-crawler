@@ -19,6 +19,7 @@ class Session:
         self.fid = self.lang = self.display_name = None
         self.counter = 0
         self.client = None
+        self.fssessionid = None
         self.logged = self.login()
 
     def write_log(self, text):
@@ -63,13 +64,15 @@ class Session:
                 url = r.headers["Location"]
                 self.write_log("Downloading: " + url)
                 r = requests.get(url, allow_redirects=False)
-                fssessionid_ = r.cookies["fssessionid"]
-                self.client = requests.Client(cookies={"fssessionid": fssessionid_})
+                self.fssessionid = r.cookies["fssessionid"]
+                self.client = requests.Client(base_url='https://familysearch.org',
+                                              cookies={"fssessionid": self.fssessionid},
+                                              timeout=self.timeout)
             except requests.exceptions.ReadTimeout:
                 self.write_log("Read timed out")
                 continue
-            except requests.exceptions.HTTPError:
-                self.write_log("HTTPError")
+            except requests.exceptions.HTTPError as e:
+                self.write_log(e)
                 time.sleep(self.timeout)
                 continue
             except KeyError:
@@ -80,7 +83,7 @@ class Session:
                 self.write_log("ValueError")
                 time.sleep(self.timeout)
                 continue
-            self.write_log("FamilySearch session id: " + fssessionid_)
+            self.write_log("FamilySearch session id: " + self.fssessionid)
             self.set_current()
             return True
 
@@ -90,10 +93,7 @@ class Session:
         while True:
             try:
                 self.write_log("Downloading: " + url)
-                r = self.client.get(
-                    "https://familysearch.org" + url,
-                    timeout=self.timeout,
-                )
+                r = self.client.get(url)
             except requests.exceptions.ReadTimeout:
                 self.write_log("Read timed out")
                 continue
@@ -141,3 +141,54 @@ class Session:
             self.fid = data["users"][0]["personId"]
             self.lang = data["users"][0]["preferredLanguage"]
             self.display_name = data["users"][0]["displayName"]
+
+    async def get_urla(self, url):
+        """ retrieve JSON structure from a FamilySearch URL """
+        self.counter += 1
+        async with requests.AsyncClient(
+                base_url='https://familysearch.org',
+                cookies={"fssessionid": self.fssessionid},
+                timeout=self.timeout
+        ) as client:
+            while True:
+                try:
+                    self.write_log("Downloading: " + url)
+                    r = await client.get(url)
+                except requests.exceptions.ReadTimeout:
+                    self.write_log("Read timed out")
+                    continue
+                self.write_log("Status code: %s" % r.status_code)
+                if r.status_code == 204:
+                    return None
+                if r.status_code in {404, 405, 410, 500}:
+                    self.write_log("WARNING: " + url)
+                    return None
+                if r.status_code == 401:
+                    self.login()
+                    continue
+                try:
+                    r.raise_for_status()
+                except requests.exceptions.HTTPError:
+                    self.write_log("HTTPError")
+                    if r.status_code == 403:
+                        if (
+                            "message" in r.json()["errors"][0]
+                            and r.json()["errors"][0]["message"] == "Unable to get ordinances."
+                        ):
+                            self.write_log(
+                                "Unable to get ordinances. "
+                                "Try with an LDS account or without option -c."
+                            )
+                            return "error"
+                        self.write_log(
+                            "WARNING: code 403 from %s %s"
+                            % (url, r.json()["errors"][0]["message"] or "")
+                        )
+                        return None
+                    time.sleep(self.timeout)
+                    continue
+                try:
+                    return r.json()
+                except Exception as e:
+                    self.write_log("WARNING: corrupted file from %s, error: %s" % (url, e))
+                    return None

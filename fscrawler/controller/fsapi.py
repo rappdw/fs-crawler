@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from urllib.parse import urlparse
 from .session import Session
@@ -6,6 +7,7 @@ from fscrawler.model.graph import Graph
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200
+MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
 
 PARENT_CHILD_RELATIONSHIP_TYPES = [
     "http://gedcomx.org/AdoptiveParent",        # A fact about an adoptive relationship between a parent and a child.
@@ -40,9 +42,6 @@ class FamilySearchAPI:
     def _get_persons(self, fids):
         return self.session.get_url("/platform/tree/persons.json?pids=" + ",".join(fids))
     
-    def get_relationship(self, rel_id):
-        return self.session.get_url(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
-
     def get_relationship_type(self, rel, field, default):
         type = default
         if field in rel:
@@ -53,8 +52,8 @@ class FamilySearchAPI:
                 type = new_type
         return type
 
-    def get_relationships_from_id(self, graph, rel_id):
-        data = self.get_relationship(rel_id)
+    async def get_relationships_from_id(self, graph, rel_id):
+        data = await self.session.get_urla(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
@@ -117,5 +116,12 @@ class FamilySearchAPI:
         graph.frontier.clear()
         self.add_individuals_to_graph(hopcount, graph, todo)
 
-    def resolve_relationships(self, relationships):
-        pass
+    def resolve_relationships(self, graph, relationships):
+        new_rel_ids = [rel_id for rel_id in relationships]
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        while new_rel_ids:
+            coroutines = [self.get_relationships_from_id(graph, rel_id) for idx, rel_id in enumerate(new_rel_ids) if idx < MAX_CONCURRENT_RELATIONSHIP_REQUESTS]
+            loop.run_until_complete(asyncio.gather(*coroutines))
+            new_rel_ids = new_rel_ids[MAX_CONCURRENT_RELATIONSHIP_REQUESTS:]
+
