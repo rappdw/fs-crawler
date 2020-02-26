@@ -6,20 +6,10 @@ from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
 
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
-from ..model.relationship_types import DEFAULT_PARENT_REL_TYPE, UNSPECIFIED_PARENT_REL_TYPE, DEFAULT_COUPLE_REL_TYPE
+from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
 MAX_PERSONS = 200
 MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
-
-PARENT_CHILD_RELATIONSHIP_TYPES = [
-    "http://gedcomx.org/AdoptiveParent",        # A fact about an adoptive relationship between a parent and a child.
-    "http://gedcomx.org/BiologicalParent",      # A fact about the biological relationship between a parent and a child.
-    "http://gedcomx.org/FosterParent",          # A fact about a foster relationship between a foster parent and a child.
-    "http://gedcomx.org/GuardianParent",        # A fact about a legal guardianship between a parent and a child.
-    "http://gedcomx.org/StepParent",            # A fact about the step relationship between a parent and a child.
-    "http://gedcomx.org/SociologicalParent",    # A fact about a sociological relationship between a parent and a child, but not definable in typical legal or biological terms.
-    "http://gedcomx.org/SurrogateParent",       # A fact about a pregnancy surrogate relationship between a parent and a child.
-]
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +49,10 @@ class FamilySearchAPI:
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if child and parent1:
-                    relationship_type = self.get_relationship_type(rel, "parent1Facts", UNSPECIFIED_PARENT_REL_TYPE)
+                    relationship_type = self.get_relationship_type(rel, "parent1Facts", UNSPECIFIED_PARENT)
                     graph.relationships[(child, parent1)] = relationship_type
                 if child and parent2:
-                    relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT_REL_TYPE)
+                    relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT)
                     graph.relationships[(child, parent2)] = relationship_type
 
     def add_individuals_to_graph(self, hopcount, graph, fids):
@@ -87,14 +77,13 @@ class FamilySearchAPI:
                         graph.add_to_frontier(person2)
                     if relationship_type == "http://gedcomx.org/Couple":
                         # we have the facts of the relationship already, no need to fetch them
-                        relationship_type = self.get_relationship_type(relationship, "facts", DEFAULT_COUPLE_REL_TYPE)
-                        graph.relationships[(
-                        person1, person2)] = relationship_type if relationship_type else "http://gedcomx.org/Marriage"
+                        relationship_type = self.get_relationship_type(relationship, "facts", UNTYPED_COUPLE)
+                        graph.relationships[(person1, person2)] = relationship_type
                     elif relationship_type == "http://gedcomx.org/ParentChild":
                         rel_id = relationship["id"][2:]
                         parent = relationship["person1"]["resourceId"]
                         child = relationship["person2"]["resourceId"]
-                        graph.relationships[(child, parent)] = DEFAULT_PARENT_REL_TYPE
+                        graph.relationships[(child, parent)] = UNTYPED_PARENT
                         graph.cp_validator.add(child, parent, rel_id)
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
