@@ -93,16 +93,19 @@ class FamilySearchAPI:
         count = 0
         while new_fids:
             data = self._get_persons(new_fids[:MAX_PERSONS])
-            count += MAX_PERSONS
-            logger.info(f"Retrieved {count} of {total_count} individuals")
             if data:
+                count += len(data['persons'])
+                logger.info(f"Retrieved {count} of {total_count} individuals")
                 parse_result_data(data)
+            else:
+                logger.error(f"Unable to retrieve data for: {new_fids[:MAX_PERSONS]}")
             new_fids = new_fids[MAX_PERSONS:]
 
     def process_hop(self, hopcount: int, graph: Graph):
         todo = graph.frontier.copy()
         graph.frontier.clear()
         self.add_individuals_to_graph(hopcount, graph, todo)
+        graph.frontier -= graph.individuals.keys()
 
     def resolve_relationships(self, graph, relationships):
         new_rel_ids = [rel_id for rel_id in relationships]
