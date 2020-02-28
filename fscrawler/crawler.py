@@ -19,9 +19,9 @@ def main():
         add_help=False,
         usage="crawl-fs -u username -p password [options]",
     )
-    parser.add_argument("-u", "--username", metavar="<STR>", type=str, required=True,
+    parser.add_argument("-u", "--username", metavar="<STR>", type=str,
                         help="FamilySearch username")
-    parser.add_argument("-p", "--password", metavar="<STR>", type=str, required=True,
+    parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
     parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
                         help="Starting list of individual FamilySearch IDs for the crawl")
@@ -44,7 +44,8 @@ def main():
     try:
         parser.error = parser.exit
         args = parser.parse_args()
-    except SystemExit:
+    except SystemExit as e:
+        print(f"\n\n*****\n{e}\n*****\n\n")
         parser.print_help()
         sys.exit(2)
     individuals = None
