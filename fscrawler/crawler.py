@@ -1,4 +1,4 @@
-from __future__ import print_function
+import asyncio
 import logging
 import re
 import sys
@@ -97,17 +97,21 @@ def main():
     for fsid in todo:
         graph.add_to_frontier(fsid)
 
+    # setup asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     # crawl for specified number of hops
     for i in range(args.hopcount):
         if len(graph.frontier) == 0:
             break
         logger.info(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
-        fs.process_hop(i, graph)
+        fs.process_hop(i, graph, loop)
 
     # now that we've crawled all of the hops, see which relationships we need to validate
     relationships_to_validate = graph.get_relationships_to_validate(args.strictresolve)
     logger.info(f"Validating {len(relationships_to_validate)} relationships...")
-    fs.resolve_relationships(graph, relationships_to_validate)
+    fs.resolve_relationships(graph, relationships_to_validate, loop)
 
     graph.print_graph(out_dir, basename)
 

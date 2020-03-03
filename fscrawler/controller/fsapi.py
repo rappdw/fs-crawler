@@ -9,7 +9,7 @@ from fscrawler.model.graph import Graph
 from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
 MAX_PERSONS = 200
-MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 400
+MAX_CONCURRENT_REQUESTS = 400
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,6 @@ class FamilySearchAPI:
     def is_logged_in(self):
         return self.session.logged
 
-    def _get_persons(self, fids):
-        return self.session.get_url("/platform/tree/persons.json?pids=" + ",".join(fids))
-    
     def get_relationship_type(self, rel, field, default):
         type = default
         if field in rel:
@@ -55,12 +52,9 @@ class FamilySearchAPI:
                     relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT)
                     graph.relationships[(child, parent2)] = relationship_type
 
-    def add_individuals_to_graph(self, hopcount, graph, fids):
-        """ add individuals to the family tree
-            :param fids: an iterable of fid
-        """
-
-        def parse_result_data(data):
+    async def get_persons_from_list(self, ids, graph, hopcount):
+        data = await self.session.get_urla("/platform/tree/persons.json?pids=" + ",".join(ids))
+        if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hopcount
@@ -88,31 +82,28 @@ class FamilySearchAPI:
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
 
-        total_count = len(fids)
+    def add_individuals_to_graph(self, hopcount, graph, fids, loop):
+        """ add individuals to the family tree
+            :param fids: an iterable of fid
+        """
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
-        count = 0
-        while new_fids:
-            data = self._get_persons(new_fids[:MAX_PERSONS])
-            if data:
-                count += len(data['persons'])
-                logger.info(f"Retrieved {count} of {total_count} individuals")
-                parse_result_data(data)
-            else:
-                logger.error(f"Unable to retrieve data for: {new_fids[:MAX_PERSONS]}")
-            new_fids = new_fids[MAX_PERSONS:]
+        n = MAX_PERSONS
+        final = [new_fids[i * n:(i + 1) * n] for i in range((len(new_fids) + n - 1) // n)]
+        if len(final) > MAX_CONCURRENT_REQUESTS:
+            raise ValueError(f"Exceeded max number of concurrent requests. Request size{len(final)} x {n}")
+        coroutines = [self.get_persons_from_list(block, graph, hopcount) for block in final]
+        loop.run_until_complete(asyncio.gather(*coroutines))
 
-    def process_hop(self, hopcount: int, graph: Graph):
+    def process_hop(self, hopcount: int, graph: Graph, loop):
         todo = graph.frontier.copy()
         graph.frontier.clear()
-        self.add_individuals_to_graph(hopcount, graph, todo)
+        self.add_individuals_to_graph(hopcount, graph, todo, loop)
         graph.frontier -= graph.individuals.keys()
 
-    def resolve_relationships(self, graph, relationships):
+    def resolve_relationships(self, graph, relationships, loop):
         new_rel_ids = [rel_id for rel_id in relationships]
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         while new_rel_ids:
-            coroutines = [self.get_relationships_from_id(graph, rel_id) for idx, rel_id in enumerate(new_rel_ids) if idx < MAX_CONCURRENT_RELATIONSHIP_REQUESTS]
+            coroutines = [self.get_relationships_from_id(graph, rel_id) for idx, rel_id in enumerate(new_rel_ids) if idx < MAX_CONCURRENT_REQUESTS]
             loop.run_until_complete(asyncio.gather(*coroutines))
-            new_rel_ids = new_rel_ids[MAX_CONCURRENT_RELATIONSHIP_REQUESTS:]
+            new_rel_ids = new_rel_ids[MAX_CONCURRENT_REQUESTS:]
 
