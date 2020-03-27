@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import logging
 from urllib.parse import urlparse
 from .session import Session
@@ -9,9 +10,16 @@ from fscrawler.model.graph import Graph
 from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
 MAX_PERSONS = 200
-MAX_CONCURRENT_REQUESTS = 400
+MAX_CONCURRENT_REQUESTS = 200
 
 logger = logging.getLogger(__name__)
+
+def split_seq(iterable, size):
+    it = iter(iterable)
+    item = list(itertools.islice(it, size))
+    while item:
+        yield item
+        item = list(itertools.islice(it, size))
 
 class FamilySearchAPI:
 
@@ -89,10 +97,9 @@ class FamilySearchAPI:
         new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
         n = MAX_PERSONS
         final = [new_fids[i * n:(i + 1) * n] for i in range((len(new_fids) + n - 1) // n)]
-        if len(final) > MAX_CONCURRENT_REQUESTS:
-            raise ValueError(f"Exceeded max number of concurrent requests. Request size{len(final)} x {n}")
-        coroutines = [self.get_persons_from_list(block, graph, hopcount) for block in final]
-        loop.run_until_complete(asyncio.gather(*coroutines))
+        for group in split_seq(final, MAX_CONCURRENT_REQUESTS):
+            coroutines = [self.get_persons_from_list(block, graph, hopcount) for block in group]
+            loop.run_until_complete(asyncio.gather(*coroutines))
 
     def process_hop(self, hopcount: int, graph: Graph, loop):
         todo = graph.frontier.copy()
