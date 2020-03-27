@@ -53,7 +53,7 @@ class FamilySearchAPI:
                     graph.relationships[(child, parent2)] = relationship_type
 
     async def get_persons_from_list(self, ids, graph, hopcount):
-        data = await self.session.get_urla("/platform/tree/persons.json?pids=" + ",".join(ids))
+        data = await self.session.get_urla("/platform/tree/persons/.json?pids=" + ",".join(ids))
         if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
