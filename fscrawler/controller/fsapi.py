@@ -10,7 +10,7 @@ from fscrawler.model.graph import Graph
 from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
 MAX_PERSONS = 200
-MAX_CONCURRENT_REQUESTS = 200
+MAX_CONCURRENT_REQUESTS = 20
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class FamilySearchAPI:
             for fact in rel[field]:
                 new_type = urlparse(fact['type']).path.strip('/')
                 if type != default and type != new_type:
-                    logger.warning(f"Replacing fact: {type} with {new_type} for relationship id: {rel} ({field})")
+                    logger.warning(f"Replacing fact: {type} with {new_type} for relationship id: {rel['id']} ({field})")
                 type = new_type
         return type
 
@@ -109,8 +109,7 @@ class FamilySearchAPI:
 
     def resolve_relationships(self, graph, relationships, loop):
         new_rel_ids = [rel_id for rel_id in relationships]
-        while new_rel_ids:
-            coroutines = [self.get_relationships_from_id(graph, rel_id) for idx, rel_id in enumerate(new_rel_ids) if idx < MAX_CONCURRENT_REQUESTS]
+        for group in split_seq(new_rel_ids, MAX_CONCURRENT_REQUESTS):
+            coroutines = [self.get_relationships_from_id(graph, rel_id) for rel_id in group]
             loop.run_until_complete(asyncio.gather(*coroutines))
-            new_rel_ids = new_rel_ids[MAX_CONCURRENT_REQUESTS:]
 
