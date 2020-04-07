@@ -5,6 +5,7 @@ import sys
 import time
 import getpass
 import argparse
+import getpass
 
 from pathlib import Path
 
@@ -63,6 +64,8 @@ def main():
 
     out_dir = Path(args.outdir)
     basename = args.basename
+    if not basename:
+        basename = getpass.getuser()
 
     time_count = time.time()
 
