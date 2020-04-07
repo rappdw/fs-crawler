@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--show-password", action="store_true", default=False,
                         help="Show password in .settings file [False]")
     parser.add_argument("-o", "--outdir", type=str,
-                        help="output directory")
+                        help="output directory", required=True)
     parser.add_argument("-s", "--strictresolve", action="store_true", default=False,
                         help="strict resolution of relationships")
     parser.add_argument("-b", "--basename", type=str,
@@ -66,7 +66,7 @@ def main():
 
     time_count = time.time()
 
-    # Report settings used when getmyancestors.py is executed.
+    # Report settings used when crawler.py is executed.
     def parse_action(act):
         if not args.show_password and act.dest == "password":
             return "******"
@@ -115,8 +115,8 @@ def main():
 
     graph.print_graph(out_dir, basename)
 
-    logger.info(f"Downloaded {str(len(graph.individuals))} individuals, {str(len(graph.frontier))} frontier,  "
-          f"{str(round(time.time() - time_count))} seconds with {str(fs.get_counter())} HTTP requests.")
+    logger.info(f"Downloaded {len(graph.individuals):,} individuals, {len(graph.frontier):,} frontier, "
+          f"{(round(time.time() - time_count)):,} seconds with {fs.get_counter():,} HTTP requests.")
 
 if __name__ == "__main__":
     main()
