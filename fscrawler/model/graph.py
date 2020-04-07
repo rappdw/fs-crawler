@@ -59,7 +59,10 @@ class Graph:
         return ({k for k, v in validation.items() if v[0] > 1 or v[1] > 1}, frontier_relationships)
 
 
-    def print_graph(self, out_dir:Path, basename:str):
+    def write_ok(self, id:str, save_living:bool):
+        return id in self.individuals and (save_living or not self.individuals[id].living)
+
+    def print_graph(self, out_dir:Path, basename:str, save_living:bool = False):
         (invalid_parent_relationships, frontier_spanning_relationships) = self.get_invalid_relationships()
         if invalid_parent_relationships or frontier_spanning_relationships:
             edges_filename = out_dir / f"{basename}.invalid.edges.csv"
@@ -67,8 +70,7 @@ class Graph:
                 writer = csv.writer(file)
                 writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'validity_reason'])
                 for (src, dest), type in self.relationships.items():
-                    if src in self.individuals and \
-                            dest in self.individuals and \
+                    if self.write_ok(src, save_living) and self.write_ok(dest, save_living) and \
                             (src in invalid_parent_relationships or src in frontier_spanning_relationships):
                         writer.writerow([src, dest, type,
                                          'frontier' if src in frontier_spanning_relationships else 'parent_cardinality'])
@@ -77,8 +79,7 @@ class Graph:
             writer = csv.writer(file)
             writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type'])
             for (src, dest), type in self.relationships.items():
-                if src in self.individuals and \
-                        dest in self.individuals and \
+                if self.write_ok(src, save_living) and self.write_ok(dest, save_living) and \
                         (src not in invalid_parent_relationships and src not in frontier_spanning_relationships):
                     writer.writerow([src, dest, type])
         vertices_filenam = out_dir / f"{basename}.vertices.csv"
@@ -86,10 +87,11 @@ class Graph:
             writer = csv.writer(file)
             writer.writerow(["#external_id", "color", "name", "hop"])
             for fid in sorted(self.individuals, key=lambda x: self.individuals.__getitem__(x).num):
-                person = self.individuals[fid]
-                color = ''
-                if person.gender in ['M', 'm']:
-                    color = -1
-                elif person.gender in ['F', 'f']:
-                    color = 1
-                writer.writerow([fid, color, f"{person.name.surname}, {person.name.given}", person.hop])
+                if self.write_ok(fid, save_living):
+                    person = self.individuals[fid]
+                    color = ''
+                    if person.gender in ['M', 'm']:
+                        color = -1
+                    elif person.gender in ['F', 'f']:
+                        color = 1
+                    writer.writerow([fid, color, f"{person.name.surname}, {person.name.given}", person.hop])

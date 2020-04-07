@@ -20,26 +20,28 @@ def main():
         add_help=False,
         usage="crawl-fs -u username -p password [options]",
     )
-    parser.add_argument("-u", "--username", metavar="<STR>", type=str,
-                        help="FamilySearch username")
-    parser.add_argument("-p", "--password", metavar="<STR>", type=str,
-                        help="FamilySearch password")
-    parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
-                        help="Starting list of individual FamilySearch IDs for the crawl")
-    parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
-                        help="Number of hops from the seed set")
-    parser.add_argument("-v", "--verbose", action="store_true", default=False,
-                        help="Increase output verbosity [False]")
-    parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60,
-                        help="Timeout in seconds [60]")
-    parser.add_argument("--show-password", action="store_true", default=False,
-                        help="Show password in .settings file [False]")
-    parser.add_argument("-o", "--outdir", type=str,
-                        help="output directory", required=True)
-    parser.add_argument("-s", "--strictresolve", action="store_true", default=False,
-                        help="strict resolution of relationships")
     parser.add_argument("-b", "--basename", type=str,
                         help="basename for all output files")
+    parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
+                        help="Number of hops from the seed set")
+    parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
+                        help="Starting list of individual FamilySearch IDs for the crawl")
+    parser.add_argument("-o", "--outdir", type=str,
+                        help="output directory", required=True)
+    parser.add_argument("-p", "--password", metavar="<STR>", type=str,
+                        help="FamilySearch password")
+    parser.add_argument("-s", "--strictresolve", action="store_true", default=False,
+                        help="strict resolution of relationships")
+    parser.add_argument("--save-living", action="store_true", default=False,
+                        help="When writing out csf files, save living individuals")
+    parser.add_argument("--show-password", action="store_true", default=False,
+                        help="Show password in .settings file [False]")
+    parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60,
+                        help="Timeout in seconds [60]")
+    parser.add_argument("-u", "--username", metavar="<STR>", type=str,
+                        help="FamilySearch username")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False,
+                        help="Increase output verbosity [False]")
 
     # extract arguments from the command line
     try:
@@ -116,7 +118,7 @@ def main():
     logger.info(f"Validating {len(relationships_to_validate)} relationships...")
     fs.resolve_relationships(graph, relationships_to_validate, loop)
 
-    graph.print_graph(out_dir, basename)
+    graph.print_graph(out_dir, basename, args.save_living)
 
     logger.info(f"Downloaded {len(graph.individuals):,} individuals, {len(graph.frontier):,} frontier, "
           f"{(round(time.time() - time_count)):,} seconds with {fs.get_counter():,} HTTP requests.")

@@ -11,11 +11,13 @@ class Individual:
         self.fid = fid
         self.name = None
         self.gender = None
+        self.living = None
         self.hop = 0
 
     def add_data(self, data):
         """ add FS individual data """
         if data:
+            self.living = data["living"]
             for x in data["names"]:
                 self.name = Name(x)
             if "gender" in data:
