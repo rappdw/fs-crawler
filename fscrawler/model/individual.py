@@ -19,6 +19,9 @@ class Individual:
         if data:
             self.living = data["living"]
             for x in data["names"]:
+                if x["preferred"]:
+                    self.name = Name(x)
+                    break
                 self.name = Name(x)
             if "gender" in data:
                 if data["gender"]["type"] == "http://gedcomx.org/Male":

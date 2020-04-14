@@ -3,16 +3,55 @@ import logging
 import re
 import sys
 import time
-import getpass
 import argparse
 import getpass
 
 from pathlib import Path
 
 from fscrawler.controller import FamilySearchAPI
-from fscrawler\
-    .model.graph import Graph
+from fscrawler.model.graph import Graph
 
+
+def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, strict_resolve=False, save_living=False, individuals=None):
+    logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    time_count = time.time()
+
+    # initialize a FamilySearch session and a family tree object
+    logger.info("Login to FamilySearch...")
+    fs = FamilySearchAPI(username, password, verbose, timeout)
+    if not fs.is_logged_in():
+        sys.exit(2)
+
+    # add list of starting individuals to the family tree
+    graph = Graph(fs)
+    if not individuals:
+        individuals = [fs.get_defaul_starting_id()]
+    todo = individuals
+    for fsid in todo:
+        graph.add_to_frontier(fsid)
+
+    # setup asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # crawl for specified number of hops
+    for i in range(hopcount):
+        if len(graph.frontier) == 0:
+            break
+        logger.info(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
+        fs.process_hop(i, graph, loop)
+
+    # now that we've crawled all of the hops, see which relationships we need to validate
+    relationships_to_validate = graph.get_relationships_to_validate(strict_resolve)
+    logger.info(f"Validating {len(relationships_to_validate)} relationships...")
+    fs.resolve_relationships(graph, relationships_to_validate, loop)
+
+    graph.print_graph(out_dir, basename, save_living)
+
+    logger.info(f"Downloaded {len(graph.individuals):,} individuals, {len(graph.frontier):,} frontier, "
+          f"{(round(time.time() - time_count)):,} seconds with {fs.get_counter():,} HTTP requests.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -58,9 +97,6 @@ def main():
              if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
                 sys.exit("Invalid FamilySearch ID: " + fid)
 
-    logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if args.verbose else logging.INFO)
-    logger = logging.getLogger(__name__)
-
     args.username = args.username if args.username else input("Enter FamilySearch username: ")
     args.password = args.password if args.password else getpass.getpass("Enter FamilySearch password: ")
 
@@ -68,8 +104,6 @@ def main():
     basename = args.basename
     if not basename:
         basename = getpass.getuser()
-
-    time_count = time.time()
 
     # Report settings used when crawler.py is executed.
     def parse_action(act):
@@ -86,42 +120,10 @@ def main():
             for action in parser._actions:
                 settings_file.write(formatting.format(action.option_strings[-1], parse_action(action)))
     except OSError as exc:
-        logger.error(f"Unable to write {settings_name}: f{repr(exc)}")
+        sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
-    # initialize a FamilySearch session and a family tree object
-    logger.info("Login to FamilySearch...")
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout)
-    if not fs.is_logged_in():
-        sys.exit(2)
+    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, individuals)
 
-    # add list of starting individuals to the family tree
-    graph = Graph(fs)
-    if not individuals:
-        individuals = [fs.get_defaul_starting_id()]
-    todo = individuals
-    for fsid in todo:
-        graph.add_to_frontier(fsid)
-
-    # setup asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # crawl for specified number of hops
-    for i in range(args.hopcount):
-        if len(graph.frontier) == 0:
-            break
-        logger.info(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
-        fs.process_hop(i, graph, loop)
-
-    # now that we've crawled all of the hops, see which relationships we need to validate
-    relationships_to_validate = graph.get_relationships_to_validate(args.strictresolve)
-    logger.info(f"Validating {len(relationships_to_validate)} relationships...")
-    fs.resolve_relationships(graph, relationships_to_validate, loop)
-
-    graph.print_graph(out_dir, basename, args.save_living)
-
-    logger.info(f"Downloaded {len(graph.individuals):,} individuals, {len(graph.frontier):,} frontier, "
-          f"{(round(time.time() - time_count)):,} seconds with {fs.get_counter():,} HTTP requests.")
 
 if __name__ == "__main__":
     main()
