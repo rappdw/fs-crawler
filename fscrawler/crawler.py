@@ -25,7 +25,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, str
         sys.exit(2)
 
     # add list of starting individuals to the family tree
-    graph = Graph(fs)
+    graph = Graph()
     if not individuals:
         individuals = [fs.get_default_starting_id()]
     todo = individuals
@@ -40,13 +40,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, str
     for i in range(hopcount):
         if len(graph.frontier) == 0:
             break
-        logger.info(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
-        fs.process_hop(i, graph, loop)
-
-    # now that we've crawled all of the hops, see which relationships we need to validate
-    relationships_to_validate = graph.get_relationships_to_validate(strict_resolve)
-    logger.info(f"Validating {len(relationships_to_validate)} relationships...")
-    fs.resolve_relationships(graph, relationships_to_validate, loop)
+        fs.process_hop(i, graph, loop, strict_resolve)
 
     graph.print_graph(out_dir, basename, save_living)
 

@@ -2,7 +2,7 @@ import csv
 from pathlib import Path
 from typing import Dict, Tuple, Set
 
-from .individual import Individual
+from .individual import Individual, Gender
 from .cp_validator import ChildParentRelationshipValidator
 from .relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, BIOLOGICAL_PARENT
 
@@ -48,7 +48,7 @@ class Graph:
                 if parent in self.individuals:
                     gender = self.individuals[parent].gender
                     counts = validation[child]
-                    if gender in ['M', 'm']:
+                    if gender is Gender.Male:
                         validation[child] = (counts[0] + 1, counts[1])
                     else:
                         validation[child] = (counts[0], counts[1] + 1)
@@ -88,8 +88,8 @@ class Graph:
                 if self.write_ok(fid, save_living):
                     person = self.individuals[fid]
                     color = ''
-                    if person.gender in ['M', 'm']:
+                    if person.gender is Gender.Male:
                         color = -1
-                    elif person.gender in ['F', 'f']:
+                    elif person.gender is Gender.Female:
                         color = 1
                     writer.writerow([fid, color, f"{person.name.surname}, {person.name.given}", person.hop])

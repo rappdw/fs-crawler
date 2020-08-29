@@ -1,4 +1,5 @@
 import sys
+import logging
 import time
 
 import httpx as requests
@@ -9,6 +10,8 @@ BASE_URL = 'https://familysearch.org'
 CURRENT_USER = "/platform/users/current.json"
 FSSESSIONID = "fssessionid"
 CONTINUE = object()
+
+logger = logging.getLogger(__name__)
 
 
 class Session:
@@ -139,6 +142,7 @@ class Session:
     def _process_response(self, r, timeout):
         if timeout:
             # TODO: implement exponential backoff with n retries
+            logger.warning(f"Read timed out for: {r.url}\n")
             self.write_log(f"Read timed out for: {r.url}")
             time.sleep(self.timeout)
             return CONTINUE

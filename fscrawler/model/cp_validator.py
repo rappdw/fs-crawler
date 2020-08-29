@@ -1,5 +1,6 @@
 from typing import Dict, Set, Tuple
-from .individual import Individual
+from .individual import Individual, Gender
+
 
 class ChildParentRelationshipValidator:
     '''
@@ -39,10 +40,11 @@ class ChildParentRelationshipValidator:
                     for parent in parent_set:
                         if parent in individuals and parent not in parents_counted:
                             parents_counted.add(parent)
-                            if individuals[parent].gender in ['M', 'm']:
+                            if individuals[parent].gender is Gender.Male:
                                 father_count += 1
-                            elif individuals[parent].gender in ['F', 'f']:
+                            elif individuals[parent].gender is Gender.Female:
                                 mother_count += 1
                     if father_count > 1 or mother_count > 1:
                         relationships_to_validate |= rel_dict.keys()
+        self.relationships = dict()
         return relationships_to_validate

@@ -70,8 +70,8 @@ class FamilySearchAPI:
             for fact in rel[field]:
                 new_type = urlparse(fact['type']).path.strip('/')
                 if rel_type != default and rel_type != new_type:
-                    logger.warning(f"Replacing fact: {rel_type} with {new_type} for relationship id: "
-                                   f"{rel['id']} ({field})")
+                    logger.debug(f"Replacing fact: {rel_type} with {new_type} "
+                                 f"for relationship id: {rel['id']} ({field})")
                 rel_type = new_type
         return rel_type
 
@@ -150,8 +150,16 @@ class FamilySearchAPI:
             if delay:
                 time.sleep(delay)
 
-    def process_hop(self, hop_count: int, graph: Graph, loop):
+    def process_hop(self, hop_count: int, graph: Graph, loop, strict_resolve: bool = False):
+        logger.info(f"Starting hop: {hop_count}... ({len(graph.frontier):,} individuals in hop)")
         todo = graph.frontier.copy()
         graph.frontier.clear()
         self.add_individuals_to_graph(hop_count, graph, todo, loop)
         graph.frontier -= graph.individuals.keys()
+
+        relationships_to_validate = graph.get_relationships_to_validate(strict_resolve)
+        logger.info(f"\tValidating {len(relationships_to_validate):,} relationships...")
+        self.resolve_relationships(graph, relationships_to_validate, loop)
+
+        logger.info(f"\tFinished hop: {hop_count}. Graph stats: {len(graph.individuals):,} persons, "
+                    f"{len(graph.relationships):,} relationships, {len(graph.frontier):,} frontier")
