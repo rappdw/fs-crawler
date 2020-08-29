@@ -1,0 +1,69 @@
+{
+  "childAndParentsRelationships" : [ {
+    "id" : "98F8-S5H",
+    "parent1" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZV",
+      "resourceId" : "KWZQ-QZV"
+    },
+    "parent2" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KJDT-2VN",
+      "resourceId" : "KJDT-2VN"
+    },
+    "child" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KWZG-916",
+      "resourceId" : "KWZG-916"
+    },
+    "links" : {
+      "parent1" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZV.json?flag=fsh"
+      },
+      "parent2-role" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/parent2.json?flag=fsh"
+      },
+      "change-history" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/changes.json?flag=fsh"
+      },
+      "notes" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/notes.json?flag=fsh"
+      },
+      "source-descriptions" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/sources.json?flag=fsh"
+      },
+      "parent1-role" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/parent1.json?flag=fsh"
+      },
+      "collection" : {
+        "href" : "https://www.familysearch.org/platform/collections/tree?flag=fsh"
+      },
+      "relationship" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H.json?flag=fsh"
+      },
+      "parent2" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KJDT-2VN.json?flag=fsh"
+      },
+      "child" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KWZG-916.json?flag=fsh"
+      }
+    },
+    "identifiers" : {
+      "http://gedcomx.org/Primary" : [ "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H" ]
+    },
+    "parent2Facts" : [ {
+      "id" : "cdb4e003-90fd-43a5-946c-29cff01363af",
+      "attribution" : {
+        "contributor" : {
+          "resource" : "https://www.familysearch.org/platform/users/agents/MM6F-7M4",
+          "resourceId" : "MM6F-7M4"
+        },
+        "modified" : 1589726091740,
+        "changeMessage" : "This is my aunt"
+      },
+      "type" : "http://gedcomx.org/StepParent",
+      "links" : {
+        "conclusion" : {
+          "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/98F8-S5H/parent2/conclusions/cdb4e003-90fd-43a5-946c-29cff01363af.json?flag=fsh"
+        }
+      }
+    } ]
+  } ]
+}

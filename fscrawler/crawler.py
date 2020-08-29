@@ -27,7 +27,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, str
     # add list of starting individuals to the family tree
     graph = Graph(fs)
     if not individuals:
-        individuals = [fs.get_defaul_starting_id()]
+        individuals = [fs.get_default_starting_id()]
     todo = individuals
     for fsid in todo:
         graph.add_to_frontier(fsid)

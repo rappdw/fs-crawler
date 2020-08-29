@@ -31,11 +31,24 @@ setup(name=package,
             'Programming Language :: Python :: 3.5',
             'Programming Language :: Python :: 3.6',
             'Programming Language :: Python :: 3.7',
+            'Programming Language :: Python :: 3.8',
       ],
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
             'httpx'
       ],
+      extras_require={
+            'dev': [
+                  'wheel>=0.29'
+            ],
+            'test': [
+                  'asynctest>=0.13',
+                  'pytest>=6.0',
+                  'pytest-asyncio>=0.12',
+                  'pytest-cov>=2.10',
+                  'pytest-httpx>=0.8',
+            ],
+      },
       entry_points={
             'console_scripts': [
                   'crawl-fs = fscrawler.crawler:main'

@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import time
 from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
@@ -9,10 +10,16 @@ from fscrawler.model.graph import Graph
 # is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
 
-MAX_PERSONS = 200
-MAX_CONCURRENT_REQUESTS = 20
+GET_PERSONS = "/platform/tree/persons/.json?pids="
+RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
+
+# these constants are used to govern the load placed on the FS API
+MAX_PERSONS = 200  # The maximum number of persons that will be in a get request for person information
+MAX_CONCURRENT_REQUESTS = 20  # the maximum number of concurrent requests that will be issued
+DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2  # the number of seconds to delay before issuing a subsequent block of requests
 
 logger = logging.getLogger(__name__)
+
 
 def split_seq(iterable, size):
     it = iter(iterable)
@@ -20,6 +27,26 @@ def split_seq(iterable, size):
     while item:
         yield item
         item = list(itertools.islice(it, size))
+
+
+def partition_requests(ids, exclusion=None, max_ids_per_request=MAX_PERSONS,
+                       max_concurrent_requests=MAX_CONCURRENT_REQUESTS):
+    """
+    Based on the maximum number of persons in a request, and the maximum number of
+    concurrent requests allowed, split a 1d array into a 2d array of arrays where
+    each cell is a set of ids to be requested in one call and each row is a group
+    of requests that will run concurrently
+    """
+    if exclusion is None:
+        exclusion = {}
+    ids = [req_id for req_id in ids if req_id is not None and req_id not in exclusion]
+    if max_ids_per_request > 1:
+        final = [ids[i * max_ids_per_request:(i + 1) * max_ids_per_request]
+                 for i in range((len(ids) + max_ids_per_request - 1) // max_ids_per_request)]
+    else:
+        final = ids
+    return split_seq(final, max_concurrent_requests)
+
 
 class FamilySearchAPI:
 
@@ -30,24 +57,28 @@ class FamilySearchAPI:
     def get_counter(self):
         return self.session.counter
 
-    def get_defaul_starting_id(self):
+    def get_default_starting_id(self):
         return self.session.fid
 
     def is_logged_in(self):
         return self.session.logged
 
-    def get_relationship_type(self, rel, field, default):
-        type = default
+    @staticmethod
+    def get_relationship_type(rel, field, default):
+        rel_type = default
         if field in rel:
             for fact in rel[field]:
                 new_type = urlparse(fact['type']).path.strip('/')
-                if type != default and type != new_type:
-                    logger.warning(f"Replacing fact: {type} with {new_type} for relationship id: {rel['id']} ({field})")
-                type = new_type
-        return type
+                if rel_type != default and rel_type != new_type:
+                    logger.warning(f"Replacing fact: {rel_type} with {new_type} for relationship id: "
+                                   f"{rel['id']} ({field})")
+                rel_type = new_type
+        return rel_type
 
     async def get_relationships_from_id(self, graph, rel_id):
-        data = await self.session.get_urla(f"/platform/tree/child-and-parents-relationships/{rel_id}.json")
+        self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), graph)
+
+    def process_relationship_result(self, data, graph):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
@@ -60,12 +91,14 @@ class FamilySearchAPI:
                     relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT)
                     graph.relationships[(child, parent2)] = relationship_type
 
-    async def get_persons_from_list(self, ids, graph, hopcount):
-        data = await self.session.get_urla("/platform/tree/persons/.json?pids=" + ",".join(ids))
+    async def get_persons_from_list(self, ids, graph, hop_count):
+        self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
+
+    def process_persons_result(self, data, graph, hop_count):
         if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
-                working_on.hop = hopcount
+                working_on.hop = hop_count
                 working_on.add_data(person)
             if "relationships" in data:
                 for relationship in data["relationships"]:
@@ -90,26 +123,35 @@ class FamilySearchAPI:
                     else:
                         logger.warning(f"Unknown relationship type: {relationship_type}")
 
-    def add_individuals_to_graph(self, hopcount, graph, fids, loop):
-        """ add individuals to the family tree
-            :param fids: an iterable of fid
+    def add_individuals_to_graph(self, hop_count, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
+        """ add individuals to the graph
+            :param ids: the ids to get person records for
+            :param hop_count: upper bound on how many relationships from seed individual(s) should be traversed
+            :param graph: graph object that is constructed through fs api requests
+            :param loop: asyncio event loop
+            :param delay: delay to insert between successive concurrent get_persons requests
         """
-        new_fids = [fid for fid in fids if fid and fid not in graph.individuals]
-        n = MAX_PERSONS
-        final = [new_fids[i * n:(i + 1) * n] for i in range((len(new_fids) + n - 1) // n)]
-        for group in split_seq(final, MAX_CONCURRENT_REQUESTS):
-            coroutines = [self.get_persons_from_list(block, graph, hopcount) for block in group]
+        for requests in partition_requests(ids, graph.individuals):
+            coroutines = [self.get_persons_from_list(request, graph, hop_count) for request in requests]
             loop.run_until_complete(asyncio.gather(*coroutines))
+            if delay:
+                time.sleep(delay)
 
-    def process_hop(self, hopcount: int, graph: Graph, loop):
+    def resolve_relationships(self, graph, relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
+        """ resolve relationship types in the graph
+            :param relationships: iterable relationship ids to resolve
+            :param graph: graph object that is constructed through fs api requests
+            :param loop: asyncio event loop
+            :param delay: delay to insert between successive concurrent get_persons requests
+        """
+        for requests in partition_requests(relationships, None, 1):
+            coroutines = [self.get_relationships_from_id(graph, request) for request in requests]
+            loop.run_until_complete(asyncio.gather(*coroutines))
+            if delay:
+                time.sleep(delay)
+
+    def process_hop(self, hop_count: int, graph: Graph, loop):
         todo = graph.frontier.copy()
         graph.frontier.clear()
-        self.add_individuals_to_graph(hopcount, graph, todo, loop)
+        self.add_individuals_to_graph(hop_count, graph, todo, loop)
         graph.frontier -= graph.individuals.keys()
-
-    def resolve_relationships(self, graph, relationships, loop):
-        new_rel_ids = [rel_id for rel_id in relationships]
-        for group in split_seq(new_rel_ids, MAX_CONCURRENT_REQUESTS):
-            coroutines = [self.get_relationships_from_id(graph, rel_id) for rel_id in group]
-            loop.run_until_complete(asyncio.gather(*coroutines))
-
