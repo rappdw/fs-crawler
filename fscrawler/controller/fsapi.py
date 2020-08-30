@@ -6,19 +6,20 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-
-# is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
-from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, UNTYPED_COUPLE
+from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, BIOLOGICAL_PARENT
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
 
 # these constants are used to govern the load placed on the FS API
+# max persons is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200  # The maximum number of persons that will be in a get request for person information
-MAX_CONCURRENT_REQUESTS = 20  # the maximum number of concurrent requests that will be issued
+MAX_CONCURRENT_REQUESTS = 40  # the maximum number of concurrent requests that will be issued
 DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2  # the number of seconds to delay before issuing a subsequent block of requests
 
 logger = logging.getLogger(__name__)
+interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"}
+interesting_relationships = {BIOLOGICAL_PARENT, UNSPECIFIED_PARENT}
 
 
 def split_seq(iterable, size):
@@ -78,18 +79,21 @@ class FamilySearchAPI:
     async def get_relationships_from_id(self, graph, rel_id):
         self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), graph)
 
+    @staticmethod
+    def _update_relationship_info(rel, child, parent, fact_key, graph):
+        if child and parent:
+            relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key, UNSPECIFIED_PARENT)
+            if relationship_type in interesting_relationships:
+                graph.relationships[(child, parent)] = relationship_type
+
     def process_relationship_result(self, data, graph):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
-                if child and parent1:
-                    relationship_type = self.get_relationship_type(rel, "parent1Facts", UNSPECIFIED_PARENT)
-                    graph.relationships[(child, parent1)] = relationship_type
-                if child and parent2:
-                    relationship_type = self.get_relationship_type(rel, "parent2Facts", UNSPECIFIED_PARENT)
-                    graph.relationships[(child, parent2)] = relationship_type
+                FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", graph)
+                FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", graph)
 
     async def get_persons_from_list(self, ids, graph, hop_count):
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
@@ -103,25 +107,17 @@ class FamilySearchAPI:
             if "relationships" in data:
                 for relationship in data["relationships"]:
                     relationship_type = relationship["type"]
-                    person1 = None
-                    person2 = None
-                    if relationship_type in ["http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"]:
+                    if relationship_type in interesting_relationships_gedcomx_types:
                         person1 = relationship["person1"]["resourceId"]
                         person2 = relationship["person2"]["resourceId"]
                         graph.add_to_frontier(person1)
                         graph.add_to_frontier(person2)
-                    if relationship_type == "http://gedcomx.org/Couple":
-                        # we have the facts of the relationship already, no need to fetch them
-                        relationship_type = self.get_relationship_type(relationship, "facts", UNTYPED_COUPLE)
-                        graph.relationships[(person1, person2)] = relationship_type
-                    elif relationship_type == "http://gedcomx.org/ParentChild":
-                        rel_id = relationship["id"][2:]
-                        parent = relationship["person1"]["resourceId"]
-                        child = relationship["person2"]["resourceId"]
-                        graph.relationships[(child, parent)] = UNTYPED_PARENT
-                        graph.cp_validator.add(child, parent, rel_id)
-                    else:
-                        logger.warning(f"Unknown relationship type: {relationship_type}")
+                        if relationship_type == "http://gedcomx.org/ParentChild":
+                            rel_id = relationship["id"][2:]
+                            parent = relationship["person1"]["resourceId"]
+                            child = relationship["person2"]["resourceId"]
+                            graph.relationships[(child, parent)] = UNTYPED_PARENT
+                            graph.cp_validator.add(child, parent, rel_id)
 
     def add_individuals_to_graph(self, hop_count, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ add individuals to the graph
@@ -144,7 +140,7 @@ class FamilySearchAPI:
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """
-        for requests in partition_requests(relationships, None, 1):
+        for requests in partition_requests(relationships, None, 1, MAX_CONCURRENT_REQUESTS * 5):
             coroutines = [self.get_relationships_from_id(graph, request) for request in requests]
             loop.run_until_complete(asyncio.gather(*coroutines))
             if delay:
