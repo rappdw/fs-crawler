@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, BIOLOGICAL_PARENT
+from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
@@ -19,7 +19,6 @@ DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2  # the number of seconds to delay before i
 
 logger = logging.getLogger(__name__)
 interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"}
-interesting_relationships = {BIOLOGICAL_PARENT, UNSPECIFIED_PARENT}
 
 
 def split_seq(iterable, size):
@@ -83,10 +82,10 @@ class FamilySearchAPI:
     def _update_relationship_info(rel, child, parent, fact_key, graph):
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key, UNSPECIFIED_PARENT)
-            if relationship_type in interesting_relationships:
-                graph.relationships[(child, parent)] = relationship_type
+            graph.relationships[(child, parent)] = relationship_type
 
-    def process_relationship_result(self, data, graph):
+    @staticmethod
+    def process_relationship_result(data, graph):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
@@ -98,7 +97,8 @@ class FamilySearchAPI:
     async def get_persons_from_list(self, ids, graph, hop_count):
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
 
-    def process_persons_result(self, data, graph, hop_count):
+    @staticmethod
+    def process_persons_result(data, graph, hop_count):
         if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
