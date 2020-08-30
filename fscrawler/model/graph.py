@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Dict, Tuple, Set
 
 from .individual import Individual, Gender
-from .cp_validator import ChildParentRelationshipValidator
 from .relationship_types import RelationshipType
 
 REL_TYPES_TO_VALIDATE = {RelationshipType.UNTYPED_PARENT, RelationshipType.BIOLOGICAL_PARENT,
@@ -18,7 +17,6 @@ class Graph:
         self.individuals: Dict[str, Individual] = dict()
         self.relationships: Dict[Tuple[str, str], str] = dict()  # dictionary of (source, dest) to relationship type
         self.frontier: Set[str] = set()
-        self.cp_validator = ChildParentRelationshipValidator()
 
     def add_to_frontier(self, fs_id: str):
         if fs_id not in self.individuals:
@@ -28,11 +26,6 @@ class Graph:
         rel_key = (child, parent)
         if rel_key not in self.relationships:
             self.relationships[rel_key] = type
-
-    def get_relationships_to_validate(self, strict: bool = False):
-        """Use cp_validator to return list of relationships to use for retrieving facts (to resolve from
-        UntypedParent to one of the specified relationship types"""
-        return self.cp_validator.get_relationships_to_validate(strict, self.individuals)
 
     def get_invalid_relationships(self) -> Tuple[Set[str], Set[str]]:
         """Based on relationship types, determine which relationships are invalid, e.g. a child

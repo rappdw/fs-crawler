@@ -96,7 +96,7 @@ class FamilySearchAPI:
                 FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", graph)
 
     async def get_persons_from_list(self, ids, graph, hop_count):
-        self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
+        return self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
 
     @staticmethod
     def _process_parent_child(key, data, graph, child, rel_id):
@@ -104,22 +104,34 @@ class FamilySearchAPI:
             parent = data[key]["resourceId"]
             graph.add_to_frontier(parent)
             graph.add_parent_child_relationship(child, parent)
-            graph.cp_validator.add(child, parent, rel_id)
 
     @staticmethod
     def process_persons_result(data, graph, hop_count):
+        requiring_resolution = set()
+        visited = dict()
         if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hop_count
                 working_on.add_data(person)
+            if 'relationships' in data:
+                for relationship in data["relationships"]:
+                    if relationship['type'] == "http://gedcomx.org/Couple":
+                        graph.add_to_frontier(relationship['person1']['resourceId'])
+                        graph.add_to_frontier(relationship['person2']['resourceId'])
             if "childAndParentsRelationships" in data:
                 for relationship in data["childAndParentsRelationships"]:
                     rel_id = relationship["id"]
                     child = relationship["child"]["resourceId"]
+                    if child in visited:
+                        requiring_resolution.add(visited[child])
+                        requiring_resolution.add(rel_id)
+                    else:
+                        visited[child] = rel_id
                     graph.add_to_frontier(child)
                     FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
                     FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
+        return requiring_resolution
 
     def add_individuals_to_graph(self, hop_count, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ add individuals to the graph
@@ -129,11 +141,15 @@ class FamilySearchAPI:
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """
+        requiring_resolution = set()
         for requests in partition_requests(ids, graph.individuals):
             coroutines = [self.get_persons_from_list(request, graph, hop_count) for request in requests]
-            loop.run_until_complete(asyncio.gather(*coroutines))
+            results = loop.run_until_complete(asyncio.gather(*coroutines))
+            for result in results:
+                requiring_resolution |= result
             if delay:
                 time.sleep(delay)
+        return requiring_resolution
 
     def resolve_relationships(self, graph, relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ resolve relationship types in the graph
@@ -152,10 +168,8 @@ class FamilySearchAPI:
         logger.info(f"Starting hop: {hop_count}... ({len(graph.frontier):,} individuals in hop)")
         todo = graph.frontier.copy()
         graph.frontier.clear()
-        self.add_individuals_to_graph(hop_count, graph, todo, loop)
+        relationships_to_validate = self.add_individuals_to_graph(hop_count, graph, todo, loop)
         graph.frontier -= graph.individuals.keys()
-
-        relationships_to_validate = graph.get_relationships_to_validate(strict_resolve)
         logger.info(f"\tValidating {len(relationships_to_validate):,} relationships...")
         self.resolve_relationships(graph, relationships_to_validate, loop)
 

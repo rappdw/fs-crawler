@@ -101,10 +101,13 @@ def step_relationship_json(request):
 
 def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_relationship_json):
     graph = Graph()
-    fs_api.process_persons_result(persons_json, graph, 0)
+    requiring_resolution = fs_api.process_persons_result(persons_json, graph, 0)
     assert 'KWZQ-QZV' in graph.individuals
     assert 'KWZQ-QZ2' in graph.individuals
     assert 'KWCY-KHR' in graph.individuals
+
+    assert "MHFN-X8H" in requiring_resolution
+    assert "98F8-S5H" in requiring_resolution
 
     assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.UNTYPED_PARENT
     assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.UNTYPED_PARENT

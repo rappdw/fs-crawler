@@ -150,7 +150,7 @@ class Session:
         if r.status_code == 204:
             return None
         if r.status_code in {404, 405, 410, 500}:
-            self.write_log("WARNING: " + r.url)
+            self.write_log(f"WARNING: {r.url}")
             return None
         if r.status_code == 401:
             self.login()
