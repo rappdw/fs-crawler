@@ -6,7 +6,7 @@ from .individual import Individual, Gender
 from .cp_validator import ChildParentRelationshipValidator
 from .relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, BIOLOGICAL_PARENT
 
-REL_TYPES_TO_VALIDATE = [UNTYPED_PARENT, BIOLOGICAL_PARENT, UNSPECIFIED_PARENT]
+REL_TYPES_TO_VALIDATE = {UNTYPED_PARENT, BIOLOGICAL_PARENT, UNSPECIFIED_PARENT}
 
 
 class Graph:
@@ -50,7 +50,7 @@ class Graph:
                     counts = validation[child]
                     if gender is Gender.Male:
                         validation[child] = (counts[0] + 1, counts[1])
-                    else:
+                    elif gender is Gender.Female:
                         validation[child] = (counts[0], counts[1] + 1)
                 else:
                     frontier_relationships.add(child)

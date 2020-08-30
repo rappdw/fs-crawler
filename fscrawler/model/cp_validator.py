@@ -15,8 +15,8 @@ class ChildParentRelationshipValidator:
     '''
 
     def __init__(self):
-        # relationships is a dictionary keyed by childid. The value held in the dictionary is also
-        # a dictionary which is keyed by relationship id with a value of the set of parentids
+        # relationships is a dictionary keyed by child_id. The value held in the dictionary is also
+        # a dictionary which is keyed by relationship id with a value of the set of parent_ids
         self.relationships: Dict[str, Dict[str, Set[str]]] = dict()
 
     def add(self, child_id:str, parent_id:str, rel_id: str):
