@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-from ..model.relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT
+from ..model.relationship_types import RelationshipType
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
@@ -72,7 +72,7 @@ class FamilySearchAPI:
                 if rel_type != default and rel_type != new_type:
                     logger.debug(f"Replacing fact: {rel_type} with {new_type} "
                                  f"for relationship id: {rel['id']} ({field})")
-                rel_type = new_type
+                rel_type = RelationshipType(new_type)
         return rel_type
 
     async def get_relationships_from_id(self, graph, rel_id):
@@ -81,7 +81,8 @@ class FamilySearchAPI:
     @staticmethod
     def _update_relationship_info(rel, child, parent, fact_key, graph):
         if child and parent:
-            relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key, UNSPECIFIED_PARENT)
+            relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
+                                                                      RelationshipType.UNSPECIFIED_PARENT)
             graph.relationships[(child, parent)] = relationship_type
 
     @staticmethod
@@ -98,26 +99,27 @@ class FamilySearchAPI:
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
 
     @staticmethod
+    def _process_parent_child(key, data, graph, child, rel_id):
+        if key in data:
+            parent = data[key]["resourceId"]
+            graph.add_to_frontier(parent)
+            graph.add_parent_child_relationship(child, parent)
+            graph.cp_validator.add(child, parent, rel_id)
+
+    @staticmethod
     def process_persons_result(data, graph, hop_count):
         if data:
             for person in data["persons"]:
                 working_on = graph.individuals[person["id"]] = Individual(person["id"])
                 working_on.hop = hop_count
                 working_on.add_data(person)
-            if "relationships" in data:
-                for relationship in data["relationships"]:
-                    relationship_type = relationship["type"]
-                    if relationship_type in interesting_relationships_gedcomx_types:
-                        person1 = relationship["person1"]["resourceId"]
-                        person2 = relationship["person2"]["resourceId"]
-                        graph.add_to_frontier(person1)
-                        graph.add_to_frontier(person2)
-                        if relationship_type == "http://gedcomx.org/ParentChild":
-                            rel_id = relationship["id"][2:]
-                            parent = relationship["person1"]["resourceId"]
-                            child = relationship["person2"]["resourceId"]
-                            graph.relationships[(child, parent)] = UNTYPED_PARENT
-                            graph.cp_validator.add(child, parent, rel_id)
+            if "childAndParentsRelationships" in data:
+                for relationship in data["childAndParentsRelationships"]:
+                    rel_id = relationship["id"]
+                    child = relationship["child"]["resourceId"]
+                    graph.add_to_frontier(child)
+                    FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
+                    FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
     def add_individuals_to_graph(self, hop_count, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ add individuals to the graph

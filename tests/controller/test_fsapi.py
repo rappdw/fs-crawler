@@ -4,7 +4,7 @@ import pathlib
 from fscrawler.controller.fsapi import split_seq, partition_requests, FamilySearchAPI
 from fscrawler.controller.session import FAMILYSEARCH_LOGIN, AUTHORIZATION, BASE_URL, CURRENT_USER, FSSESSIONID
 from fscrawler.model.graph import Graph
-from fscrawler.model.relationship_types import UNTYPED_PARENT, BIOLOGICAL_PARENT, UNSPECIFIED_PARENT
+from fscrawler.model.relationship_types import RelationshipType
 from unittest.mock import patch, ANY
 from asynctest import CoroutineMock
 
@@ -106,18 +106,18 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
     assert 'KWZQ-QZ2' in graph.individuals
     assert 'KWCY-KHR' in graph.individuals
 
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == UNTYPED_PARENT
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == UNTYPED_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] == UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] == RelationshipType.UNTYPED_PARENT
     fs_api.process_relationship_result(step_relationship_json, graph)
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == UNSPECIFIED_PARENT
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == UNTYPED_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != UNTYPED_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != BIOLOGICAL_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != UNSPECIFIED_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.UNSPECIFIED_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.BIOLOGICAL_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNSPECIFIED_PARENT
     fs_api.process_relationship_result(bio_relationship_json, graph)
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == BIOLOGICAL_PARENT
-    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == BIOLOGICAL_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != UNTYPED_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != BIOLOGICAL_PARENT
-    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != UNSPECIFIED_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.BIOLOGICAL_PARENT
+    assert graph.relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.BIOLOGICAL_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNTYPED_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.BIOLOGICAL_PARENT
+    assert graph.relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNSPECIFIED_PARENT

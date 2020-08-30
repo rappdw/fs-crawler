@@ -4,9 +4,10 @@ from typing import Dict, Tuple, Set
 
 from .individual import Individual, Gender
 from .cp_validator import ChildParentRelationshipValidator
-from .relationship_types import UNTYPED_PARENT, UNSPECIFIED_PARENT, BIOLOGICAL_PARENT
+from .relationship_types import RelationshipType
 
-REL_TYPES_TO_VALIDATE = {UNTYPED_PARENT, BIOLOGICAL_PARENT, UNSPECIFIED_PARENT}
+REL_TYPES_TO_VALIDATE = {RelationshipType.UNTYPED_PARENT, RelationshipType.BIOLOGICAL_PARENT,
+                         RelationshipType.UNSPECIFIED_PARENT}
 
 
 class Graph:
@@ -22,6 +23,11 @@ class Graph:
     def add_to_frontier(self, fs_id: str):
         if fs_id not in self.individuals:
             self.frontier.add(fs_id)
+
+    def add_parent_child_relationship(self, child, parent, type: RelationshipType = RelationshipType.UNTYPED_PARENT):
+        rel_key = (child, parent)
+        if rel_key not in self.relationships:
+            self.relationships[rel_key] = type
 
     def get_relationships_to_validate(self, strict: bool = False):
         """Use cp_validator to return list of relationships to use for retrieving facts (to resolve from

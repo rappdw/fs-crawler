@@ -1,1 +1,1 @@
-from .relationship_types import UNSPECIFIED_PARENT, UNTYPED_COUPLE, UNTYPED_PARENT, BIOLOGICAL_PARENT
+from .relationship_types import RelationshipType
