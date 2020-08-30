@@ -1,4 +1,6 @@
 from enum import Enum
+
+# see: https://www.familysearch.org/developers/docs/api/types/json_FactType
 # PARENT_CHILD_RELATIONSHIP_TYPES = [
 #     "http://gedcomx.org/AdoptiveParent",        # A fact about an adoptive relationship between a parent and a child.
 #     "http://gedcomx.org/BiologicalParent",      # A fact about the biological relationship between a parent and a child.
