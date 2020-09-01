@@ -6,7 +6,8 @@ from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
-from ..model.relationship_types import RelationshipType
+from fscrawler.model.relationship_types import RelationshipType
+from .graph_writer import GraphWriter
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
@@ -83,7 +84,7 @@ class FamilySearchAPI:
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
                                                                       RelationshipType.UNSPECIFIED_PARENT)
-            graph.relationships[(child, parent)] = relationship_type
+            graph.update_relationship(child, parent, relationship_type)
 
     @staticmethod
     def process_relationship_result(data, graph):
@@ -95,25 +96,24 @@ class FamilySearchAPI:
                 FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", graph)
                 FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", graph)
 
-    async def get_persons_from_list(self, ids, graph, hop_count):
-        return self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, hop_count)
+    async def get_persons_from_list(self, ids, graph, iteration):
+        return self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
 
     @staticmethod
-    def _process_parent_child(key, data, graph, child, rel_id):
+    def _process_parent_child(key, data, graph, child):
         if key in data:
             parent = data[key]["resourceId"]
             graph.add_to_frontier(parent)
             graph.add_parent_child_relationship(child, parent)
 
     @staticmethod
-    def process_persons_result(data, graph, hop_count):
+    def process_persons_result(data, graph, iteration):
         requiring_resolution = set()
         visited = dict()
         if data:
             for person in data["persons"]:
-                working_on = graph.individuals[person["id"]] = Individual(person["id"])
-                working_on.hop = hop_count
-                working_on.add_data(person)
+                working_on = Individual(person, iteration)
+                graph.add_individual(working_on)
             if 'relationships' in data:
                 for relationship in data["relationships"]:
                     if relationship['type'] == "http://gedcomx.org/Couple":
@@ -129,21 +129,21 @@ class FamilySearchAPI:
                     else:
                         visited[child] = rel_id
                     graph.add_to_frontier(child)
-                    FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
-                    FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
+                    FamilySearchAPI._process_parent_child("parent1", relationship, graph, child)
+                    FamilySearchAPI._process_parent_child("parent2", relationship, graph, child)
         return requiring_resolution
 
-    def add_individuals_to_graph(self, hop_count, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
+    def add_individuals_to_graph(self, iteration, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ add individuals to the graph
             :param ids: the ids to get person records for
-            :param hop_count: upper bound on how many relationships from seed individual(s) should be traversed
+            :param iteration: upper bound on how many relationships from seed individual(s) should be traversed
             :param graph: graph object that is constructed through fs api requests
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """
         requiring_resolution = set()
-        for requests in partition_requests(ids, graph.individuals):
-            coroutines = [self.get_persons_from_list(request, graph, hop_count) for request in requests]
+        for requests in partition_requests(ids, graph.get_visited_individuals()):
+            coroutines = [self.get_persons_from_list(request, graph, iteration) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines))
             for result in results:
                 requiring_resolution |= result
@@ -164,14 +164,18 @@ class FamilySearchAPI:
             if delay:
                 time.sleep(delay)
 
-    def process_hop(self, hop_count: int, graph: Graph, loop, strict_resolve: bool = False):
-        logger.info(f"Starting hop: {hop_count}... ({len(graph.frontier):,} individuals in hop)")
-        todo = graph.frontier.copy()
-        graph.frontier.clear()
-        relationships_to_validate = self.add_individuals_to_graph(hop_count, graph, todo, loop)
-        graph.frontier -= graph.individuals.keys()
-        logger.info(f"\tValidating {len(relationships_to_validate):,} relationships...")
+    def iterate(self, iteration: int, iteration_bound: int, graph: Graph, loop, writer: GraphWriter = None):
+        final_iteration = iteration == iteration_bound - 1
+        graph.iterate()
+
+        logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
+        relationships_to_validate = self.add_individuals_to_graph(iteration, graph, graph.get_ids_to_process(), loop)
+
+        logger.info(f"\tResolving {len(relationships_to_validate):,} relationships...")
         self.resolve_relationships(graph, relationships_to_validate, loop)
 
-        logger.info(f"\tFinished hop: {hop_count}. Graph stats: {len(graph.individuals):,} persons, "
-                    f"{len(graph.relationships):,} relationships, {len(graph.frontier):,} frontier")
+        logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
+
+        graph.end_iteration()
+        if writer:
+            writer.write_iteration(not final_iteration)
