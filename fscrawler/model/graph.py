@@ -126,6 +126,21 @@ class Graph:
     def get_next_iter_relationships(self):
         return self.next_iter_relationships
 
+    def add_visited_individual(self, fs_id: str, living: bool):
+        self.individual_count += 1
+        if living:
+            self.living_individuals_visited.add(fs_id)
+        else:
+            self.individuals_visited.add(fs_id)
+
+    def add_visited_relationship(self, rel_key: Tuple[str, str]):
+        self.relationship_count += 1
+        self.relationships_visited.add(rel_key)
+
+    def add_next_iter(self, rel_key: Tuple[str, str], rel_type: RelationshipType):
+        self.relationship_count += 1
+        self.next_iter_relationships[rel_key] = rel_type
+
     def add_to_frontier(self, fs_id: str):
         if fs_id not in self.individuals_visited and \
                 fs_id not in self.living_individuals_visited and \

@@ -8,7 +8,7 @@ import getpass
 
 from pathlib import Path
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader
 from fscrawler.model.graph import Graph
 
 
@@ -27,11 +27,17 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     # add list of starting individuals to the family tree
     graph = Graph()
-    if not individuals:
-        individuals = [fs.get_default_starting_id()]
-    todo = individuals
-    for fsid in todo:
-        graph.add_to_frontier(fsid)
+    iteration_start = 0
+    if restart:
+        reader = GraphReader(out_dir, basename, graph)
+        iteration_start = reader.get_max_iteration() + 1
+        logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
+    else:
+        if not individuals:
+            individuals = [fs.get_default_starting_id()]
+        todo = individuals
+        for fsid in todo:
+            graph.add_to_frontier(fsid)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
@@ -40,7 +46,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     writer = GraphWriter(out_dir, basename, save_living, graph, restart)
 
     # crawl for specified number of iterations
-    for i in range(iteration_bound):
+    for i in range(iteration_start, iteration_bound):
         fs.iterate(i, iteration_bound, graph, loop, writer)
 
     logger.info(f"Downloaded {graph.graph_stats()}, "
@@ -64,7 +70,7 @@ def main():
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
-    parser.add_argument("-r", "--restart", metavar="<STR>", type=str,
+    parser.add_argument("-r", "--restart", action="store_true", default=False,
                         help="Restart from saved state of last crawl")
     parser.add_argument("--save-living", action="store_true", default=False,
                         help="When writing out csf files, save living individuals")

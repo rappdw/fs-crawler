@@ -2,19 +2,13 @@ import csv
 from fscrawler.model.graph import Graph, EdgeConditions, determine_edge_condition
 from fscrawler.model.individual import Gender
 
+from .graph_io import GraphIO
 
-class GraphWriter:
+class GraphWriter(GraphIO):
 
     def __init__(self, out_dir, basename: str, save_living: bool, graph: Graph, restart: bool):
-        self.out_dir = out_dir
-        self.basename = basename
-        self.edges_filename = out_dir / f"{basename}.edges.csv"
-        self.vertices_filename = out_dir / f"{basename}.vertices.csv"
-        self.residual_edges_filename = out_dir / f"{basename}.residual.edges.csv"
-        self.frontier_vertices_filename = out_dir / f"{basename}.frontier.vertices.csv"
-        self.frontier_edges_filename = out_dir / f"{basename}.frontier.edges.csv"
+        super().__init__(out_dir, basename, graph)
         self.save_living = save_living
-        self.graph = graph
         self._initialize_output(restart)
 
     def _initialize_output(self, restart: bool):
@@ -43,7 +37,7 @@ class GraphWriter:
             for (src, dest), rel_type in relationships.items():
                 edge_condition = self._get_edge_condition(src, dest, span_frontier)
                 if edge_condition == EdgeConditions.writeable:
-                    writer.writerow([src, dest, rel_type])
+                    writer.writerow([src, dest, rel_type.value])
                 elif not span_frontier and edge_condition == EdgeConditions.spanning:
                     residual[(src, dest)] = rel_type
         with self.vertices_filename.open("a") as file:
@@ -69,10 +63,10 @@ class GraphWriter:
             writer = csv.writer(file)
             writer.writerow(['#source_vertex', 'destination_vertex, relationship_type'])
             for (src, dest), rel_type in next_iter.items():
-                writer.writerow([src, dest, rel_type])
+                writer.writerow([src, dest, rel_type.value])
         if not span_frontier:
             with self.residual_edges_filename.open("w") as file:
                 writer = csv.writer(file)
                 writer.writerow(['#source_vertex', 'destination_vertex, relationship_type'])
                 for (src, dest), rel_type in residual.items():
-                    writer.writerow([src, dest, rel_type])
+                    writer.writerow([src, dest, rel_type.value])
