@@ -171,7 +171,7 @@ class FamilySearchAPI:
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
         relationships_to_validate = self.add_individuals_to_graph(iteration, graph, graph.get_ids_to_process(), loop)
 
-        logger.info(f"\tResolving {len(relationships_to_validate):,} relationships...")
+        logger.info(f"\tResolving {len(relationships_to_validate):,} relationships for {graph.graph_stats()}")
         self.resolve_relationships(graph, relationships_to_validate, loop)
 
         logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
