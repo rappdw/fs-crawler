@@ -13,7 +13,7 @@ from fscrawler.model.graph import Graph
 
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
-          save_living=False, individuals=None):
+          save_living=False, individuals=None, restart=False):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    writer = GraphWriter(out_dir, basename, save_living, graph)
+    writer = GraphWriter(out_dir, basename, save_living, graph, restart)
 
     # crawl for specified number of iterations
     for i in range(iteration_bound):
@@ -64,6 +64,8 @@ def main():
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
+    parser.add_argument("-r", "--restart", metavar="<STR>", type=str,
+                        help="Restart from saved state of last crawl")
     parser.add_argument("--save-living", action="store_true", default=False,
                         help="When writing out csf files, save living individuals")
     parser.add_argument("--show-password", action="store_true", default=False,
@@ -116,7 +118,7 @@ def main():
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
     crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
-          args.save_living, individuals)
+          args.save_living, individuals, args.restart)
 
 
 if __name__ == "__main__":

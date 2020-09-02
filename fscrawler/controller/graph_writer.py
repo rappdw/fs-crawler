@@ -5,7 +5,7 @@ from fscrawler.model.individual import Gender
 
 class GraphWriter:
 
-    def __init__(self, out_dir, basename: str, save_living: bool, graph: Graph):
+    def __init__(self, out_dir, basename: str, save_living: bool, graph: Graph, restart: bool):
         self.out_dir = out_dir
         self.basename = basename
         self.edges_filename = out_dir / f"{basename}.edges.csv"
@@ -15,15 +15,16 @@ class GraphWriter:
         self.frontier_edges_filename = out_dir / f"{basename}.frontier.edges.csv"
         self.save_living = save_living
         self.graph = graph
-        self._initialize_output()
+        self._initialize_output(restart)
 
-    def _initialize_output(self):
-        with self.edges_filename.open("w") as file:
-            writer = csv.writer(file)
-            writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type'])
-        with self.vertices_filename.open("w") as file:
-            writer = csv.writer(file)
-            writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
+    def _initialize_output(self, restart: bool):
+        if not restart:
+            with self.edges_filename.open("w") as file:
+                writer = csv.writer(file)
+                writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type'])
+            with self.vertices_filename.open("w") as file:
+                writer = csv.writer(file)
+                writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
 
     def _get_edge_condition(self, person_id1: str, person_id2: str, span_frontier: bool):
         p, r = self.graph.get_individual_info(person_id1)
