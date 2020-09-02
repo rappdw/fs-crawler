@@ -1,3 +1,6 @@
+from enum import Enum
+
+# see: https://www.familysearch.org/developers/docs/api/types/json_FactType
 # PARENT_CHILD_RELATIONSHIP_TYPES = [
 #     "http://gedcomx.org/AdoptiveParent",        # A fact about an adoptive relationship between a parent and a child.
 #     "http://gedcomx.org/BiologicalParent",      # A fact about the biological relationship between a parent and a child.
@@ -8,7 +11,16 @@
 #     "http://gedcomx.org/SurrogateParent",       # A fact about a pregnancy surrogate relationship between a parent and a child.
 # ]
 
-BIOLOGICAL_PARENT = 'BiologicalParent'          # One of the FS API specified types (shortened)
-UNTYPED_PARENT = 'UntypedParent'                # We don't know, we haven't requested type info yet, assumed to be Biological
-UNSPECIFIED_PARENT = 'UnspecifiedParentType'    # We've requested type info, but didn't receive any
-UNTYPED_COUPLE = 'UntypedCouple'                # We don't know, we haven't requested type info yet, assumed to be Marriage
+class RelationshipType(Enum):
+    UNTYPED_PARENT = 'UntypedParent'                # We don't know, we haven't requested type info yet, assumed to be Biological
+    UNSPECIFIED_PARENT = 'UnspecifiedParentType'    # We've requested type info, but didn't receive any
+    UNTYPED_COUPLE = 'UntypedCouple'                # We don't know, we haven't requested type info yet, assumed to be Marriage
+    ADOPTIVE_PARENT = 'AdoptiveParent'
+    BIOLOGICAL_PARENT = 'BiologicalParent'          # One of the FS API specified types (shortened)
+    FOSTER_PARENT = 'FosterParent'
+    GUARDIAN_PARENT = 'GuardianParent'
+    STEP_PARENT = 'StepParent'
+    SOCIOLOGICAL_PARENT = 'SociologicalParent'
+    SURROGATE_PARENT = 'SurrogateParent'
+
+

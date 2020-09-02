@@ -8,11 +8,12 @@ import getpass
 
 from pathlib import Path
 
-from fscrawler.controller import FamilySearchAPI
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader
 from fscrawler.model.graph import Graph
 
 
-def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, strict_resolve=False, save_living=False, individuals=None):
+def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
+          save_living=False, individuals=None, restart=False):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -25,52 +26,52 @@ def crawl(out_dir, basename, username, password, timeout, verbose, hopcount, str
         sys.exit(2)
 
     # add list of starting individuals to the family tree
-    graph = Graph(fs)
-    if not individuals:
-        individuals = [fs.get_defaul_starting_id()]
-    todo = individuals
-    for fsid in todo:
-        graph.add_to_frontier(fsid)
+    graph = Graph()
+    iteration_start = 0
+    if restart:
+        reader = GraphReader(out_dir, basename, graph)
+        iteration_start = reader.get_max_iteration() + 1
+        logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
+    else:
+        if not individuals:
+            individuals = [fs.get_default_starting_id()]
+        todo = individuals
+        for fsid in todo:
+            graph.add_to_frontier(fsid)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # crawl for specified number of hops
-    for i in range(hopcount):
-        if len(graph.frontier) == 0:
-            break
-        logger.info(f"Downloading hop: {i}... ({len(graph.frontier)} individuals in hop)")
-        fs.process_hop(i, graph, loop)
+    writer = GraphWriter(out_dir, basename, save_living, graph, restart)
 
-    # now that we've crawled all of the hops, see which relationships we need to validate
-    relationships_to_validate = graph.get_relationships_to_validate(strict_resolve)
-    logger.info(f"Validating {len(relationships_to_validate)} relationships...")
-    fs.resolve_relationships(graph, relationships_to_validate, loop)
+    # crawl for specified number of iterations
+    for i in range(iteration_start, iteration_bound):
+        fs.iterate(i, iteration_bound, graph, loop, writer)
 
-    graph.print_graph(out_dir, basename, save_living)
+    logger.info(f"Downloaded {graph.graph_stats()}, "
+                f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
 
-    logger.info(f"Downloaded {len(graph.individuals):,} individuals, {len(graph.frontier):,} frontier, "
-          f"{(round(time.time() - time_count)):,} seconds with {fs.get_counter():,} HTTP requests.")
 
 def main():
     parser = argparse.ArgumentParser(
-        description="crawl-fs - Crawl the FamilySearch tree and extract vertices and edges for ingestion into RedBlackGraph",
+        description="crawl-fs - Crawl the FamilySearch tree and extract vertices and edges for ingestion "
+                    "into RedBlackGraph",
         add_help=False,
         usage="crawl-fs -u username -p password [options]",
     )
     parser.add_argument("-b", "--basename", type=str,
                         help="basename for all output files")
     parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
-                        help="Number of hops from the seed set")
+                        help="Number of crawl iterations to run")
     parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
                         help="Starting list of individual FamilySearch IDs for the crawl")
     parser.add_argument("-o", "--outdir", type=str,
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
-    parser.add_argument("-s", "--strictresolve", action="store_true", default=False,
-                        help="strict resolution of relationships")
+    parser.add_argument("-r", "--restart", action="store_true", default=False,
+                        help="Restart from saved state of last crawl")
     parser.add_argument("--save-living", action="store_true", default=False,
                         help="When writing out csf files, save living individuals")
     parser.add_argument("--show-password", action="store_true", default=False,
@@ -94,7 +95,7 @@ def main():
     if args.individuals:
         individuals = [item for sublist in args.individuals for item in sublist]
         for fid in individuals:
-             if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
+            if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
                 sys.exit("Invalid FamilySearch ID: " + fid)
 
     args.username = args.username if args.username else input("Enter FamilySearch username: ")
@@ -122,7 +123,8 @@ def main():
     except OSError as exc:
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
-    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, individuals)
+    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
+          args.save_living, individuals, args.restart)
 
 
 if __name__ == "__main__":

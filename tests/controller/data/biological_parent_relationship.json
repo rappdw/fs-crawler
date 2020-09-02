@@ -1,0 +1,84 @@
+{
+  "childAndParentsRelationships" : [ {
+    "id" : "MHFN-X8H",
+    "parent1" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZV",
+      "resourceId" : "KWZQ-QZV"
+    },
+    "parent2" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZG",
+      "resourceId" : "KWZQ-QZG"
+    },
+    "child" : {
+      "resource" : "https://www.familysearch.org/platform/tree/persons/KWZG-916",
+      "resourceId" : "KWZG-916"
+    },
+    "links" : {
+      "parent1" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZV.json?flag=fsh"
+      },
+      "parent2-role" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/parent2.json?flag=fsh"
+      },
+      "change-history" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/changes.json?flag=fsh"
+      },
+      "notes" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/notes.json?flag=fsh"
+      },
+      "source-descriptions" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/sources.json?flag=fsh"
+      },
+      "parent1-role" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/parent1.json?flag=fsh"
+      },
+      "collection" : {
+        "href" : "https://www.familysearch.org/platform/collections/tree?flag=fsh"
+      },
+      "relationship" : {
+        "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H.json?flag=fsh"
+      },
+      "parent2" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KWZQ-QZG.json?flag=fsh"
+      },
+      "child" : {
+        "href" : "https://www.familysearch.org/platform/tree/persons/KWZG-916.json?flag=fsh"
+      }
+    },
+    "identifiers" : {
+      "http://gedcomx.org/Primary" : [ "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H" ]
+    },
+    "parent1Facts" : [ {
+      "id" : "3bcbf6ac-2dc4-4f34-a733-b57eb2832e08",
+      "attribution" : {
+        "contributor" : {
+          "resource" : "https://www.familysearch.org/platform/users/agents/MMMM-MMD",
+          "resourceId" : "MMMM-MMD"
+        },
+        "modified" : 1457147837577
+      },
+      "type" : "http://gedcomx.org/BiologicalParent",
+      "links" : {
+        "conclusion" : {
+          "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/parent1/conclusions/3bcbf6ac-2dc4-4f34-a733-b57eb2832e08.json?flag=fsh"
+        }
+      }
+    } ],
+    "parent2Facts" : [ {
+      "id" : "d05637db-ec45-4c3f-aee4-f2e6ba9118d9",
+      "attribution" : {
+        "contributor" : {
+          "resource" : "https://www.familysearch.org/platform/users/agents/MMMM-MMD",
+          "resourceId" : "MMMM-MMD"
+        },
+        "modified" : 1457147837577
+      },
+      "type" : "http://gedcomx.org/BiologicalParent",
+      "links" : {
+        "conclusion" : {
+          "href" : "https://www.familysearch.org/platform/tree/child-and-parents-relationships/MHFN-X8H/parent2/conclusions/d05637db-ec45-4c3f-aee4-f2e6ba9118d9.json?flag=fsh"
+        }
+      }
+    } ]
+  } ]
+}
