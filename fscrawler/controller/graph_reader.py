@@ -8,9 +8,9 @@ class GraphReader(GraphIO):
     def __init__(self, out_dir, basename: str, graph: Graph):
         super().__init__(out_dir, basename, graph)
         self.max_iter = -1
-        self.initialize_graph()
+        self._initialize_graph()
 
-    def initialize_graph(self):
+    def _initialize_graph(self):
         # load the visited edges by reading the edges file
         with self.vertices_filename.open("r") as file:
             reader = csv.reader(file)

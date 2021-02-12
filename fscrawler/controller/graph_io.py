@@ -1,10 +1,11 @@
 from abc import ABC
+from typing import Optional
 from fscrawler.model.graph import Graph
 
 
 class GraphIO(ABC):
 
-    def __init__(self, out_dir, basename: str, graph: Graph):
+    def __init__(self, out_dir, basename: str, graph: Optional[Graph]):
         self.out_dir = out_dir
         self.basename = basename
         self.edges_filename = out_dir / f"{basename}.edges.csv"
