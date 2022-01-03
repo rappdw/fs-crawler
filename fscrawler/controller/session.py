@@ -6,7 +6,7 @@ import httpx as requests
 
 FAMILYSEARCH_LOGIN = "https://www.familysearch.org/auth/familysearch/login"
 AUTHORIZATION = "https://ident.familysearch.org/cis-web/oauth2/v3/authorization"
-BASE_URL = 'https://familysearch.org'
+BASE_URL = 'https://www.familysearch.org:443'
 CURRENT_USER = "/platform/users/current.json"
 FSSESSIONID = "fssessionid"
 CONTINUE = object()
@@ -46,10 +46,10 @@ class Session:
             try:
                 url = FAMILYSEARCH_LOGIN
                 self.write_log("Downloading: " + url)
-                r = requests.get(url, params={"ldsauth": False}, allow_redirects=False)
+                r = requests.get(url, params={"ldsauth": False}, follow_redirects=False)
                 url = r.headers["Location"]
                 self.write_log("Downloading: " + url)
-                r = requests.get(url, allow_redirects=False)
+                r = requests.get(url, follow_redirects=False)
                 idx = r.text.index('name="params" value="')
                 span = r.text[idx + 21:].index('"')
                 params = r.text[idx + 21: idx + 21 + span]
@@ -59,7 +59,7 @@ class Session:
                 r = requests.post(
                     url,
                     data={"params": params, "userName": self.username, "password": self.password},
-                    allow_redirects=False,
+                    follow_redirects=False,
                 )
 
                 if "The username or password was incorrect" in r.text:
@@ -73,7 +73,7 @@ class Session:
 
                 url = r.headers["Location"]
                 self.write_log("Downloading: " + url)
-                r = requests.get(url, allow_redirects=False)
+                r = requests.get(url, follow_redirects=False)
                 self.fssessionid = r.cookies[FSSESSIONID]
                 self.client = requests.Client(base_url=BASE_URL,
                                               cookies={FSSESSIONID: self.fssessionid},
