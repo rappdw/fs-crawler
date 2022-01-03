@@ -51,7 +51,8 @@ setup(name=package,
       },
       entry_points={
             'console_scripts': [
-                  'crawl-fs = fscrawler.crawler:main'
+                  'crawl-fs = fscrawler.crawler:main',
+                  'validate-fs = fscrawler.validator:main'
             ],
       }
 )

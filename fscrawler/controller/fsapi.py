@@ -80,40 +80,38 @@ class FamilySearchAPI:
         self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), graph)
 
     @staticmethod
-    def _update_relationship_info(rel, child, parent, fact_key, graph):
+    def _update_relationship_info(rel, child, parent, fact_key, rel_id, graph):
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
                                                                       RelationshipType.UNSPECIFIED_PARENT)
-            graph.update_relationship(child, parent, relationship_type)
+            graph.update_relationship(child, parent, relationship_type, rel_id)
 
     @staticmethod
     def process_relationship_result(data, graph):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
+                rel_id = rel["id"]
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
-                FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", graph)
-                FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", graph)
+                FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id, graph)
+                FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id, graph)
 
     async def get_persons_from_list(self, ids, graph, iteration):
-        return self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
+        self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
 
     @staticmethod
-    def _process_parent_child(key, data, graph, child):
+    def _process_parent_child(key, data, graph, child, rel_id):
         if key in data:
             parent = data[key]["resourceId"]
             graph.add_to_frontier(parent)
-            graph.add_parent_child_relationship(child, parent)
+            graph.add_parent_child_relationship(child, parent, rel_id)
 
     @staticmethod
     def process_persons_result(data, graph, iteration):
-        requiring_resolution = set()
-        visited = dict()
         if data:
             for person in data["persons"]:
-                working_on = Individual(person, iteration)
-                graph.add_individual(working_on)
+                graph.add_individual(Individual(person, iteration))
             if 'relationships' in data:
                 for relationship in data["relationships"]:
                     if relationship['type'] == "http://gedcomx.org/Couple":
@@ -123,15 +121,9 @@ class FamilySearchAPI:
                 for relationship in data["childAndParentsRelationships"]:
                     rel_id = relationship["id"]
                     child = relationship["child"]["resourceId"]
-                    if child in visited:
-                        requiring_resolution.add(visited[child])
-                        requiring_resolution.add(rel_id)
-                    else:
-                        visited[child] = rel_id
                     graph.add_to_frontier(child)
-                    FamilySearchAPI._process_parent_child("parent1", relationship, graph, child)
-                    FamilySearchAPI._process_parent_child("parent2", relationship, graph, child)
-        return requiring_resolution
+                    FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
+                    FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
     def add_individuals_to_graph(self, iteration, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ add individuals to the graph
@@ -141,15 +133,11 @@ class FamilySearchAPI:
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """
-        requiring_resolution = set()
         for requests in partition_requests(ids, graph.get_visited_individuals()):
             coroutines = [self.get_persons_from_list(request, graph, iteration) for request in requests]
-            results = loop.run_until_complete(asyncio.gather(*coroutines))
-            for result in results:
-                requiring_resolution |= result
+            loop.run_until_complete(asyncio.gather(*coroutines))
             if delay:
                 time.sleep(delay)
-        return requiring_resolution
 
     def resolve_relationships(self, graph, relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ resolve relationship types in the graph
@@ -169,10 +157,10 @@ class FamilySearchAPI:
         graph.iterate()
 
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
-        relationships_to_validate = self.add_individuals_to_graph(iteration, graph, graph.get_ids_to_process(), loop)
+        self.add_individuals_to_graph(iteration, graph, graph.get_ids_to_process(), loop)
 
-        logger.info(f"\tResolving {len(relationships_to_validate):,} relationships for {graph.graph_stats()}")
-        self.resolve_relationships(graph, relationships_to_validate, loop)
+#        logger.info(f"\tResolving {len(relationships_to_validate):,} relationships for {graph.graph_stats()}")
+#        self.resolve_relationships(graph, relationships_to_validate, loop)
 
         logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
 

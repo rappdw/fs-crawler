@@ -8,12 +8,12 @@ import getpass
 
 from pathlib import Path
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO
 from fscrawler.model.graph import Graph
 
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
-          save_living=False, individuals=None, restart=False):
+          save_living=False, individuals=None):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -28,16 +28,19 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     # add list of starting individuals to the family tree
     graph = Graph()
     iteration_start = 0
-    if restart:
+    # check to see if the files already exists and if so, consider this
+    # a restart
+    if GraphIO(out_dir, basename, graph).exists():
+        restart = True
         reader = GraphReader(out_dir, basename, graph)
         iteration_start = reader.get_max_iteration() + 1
         logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
     else:
+        restart = False
         if not individuals:
             individuals = [fs.get_default_starting_id()]
-        todo = individuals
-        for fsid in todo:
-            graph.add_to_frontier(fsid)
+        for id in individuals:
+            graph.add_to_frontier(id)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
@@ -70,8 +73,6 @@ def main():
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
-    parser.add_argument("-r", "--restart", action="store_true", default=False,
-                        help="Restart from saved state of last crawl")
     parser.add_argument("--save-living", action="store_true", default=False,
                         help="When writing out csf files, save living individuals")
     parser.add_argument("--show-password", action="store_true", default=False,
@@ -124,7 +125,7 @@ def main():
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
     crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
-          args.save_living, individuals, args.restart)
+          args.save_living, individuals)
 
 
 if __name__ == "__main__":

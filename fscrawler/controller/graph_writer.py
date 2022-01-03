@@ -15,31 +15,24 @@ class GraphWriter(GraphIO):
         if not restart:
             with self.edges_filename.open("w") as file:
                 writer = csv.writer(file)
-                writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type'])
+                writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
             with self.vertices_filename.open("w") as file:
                 writer = csv.writer(file)
                 writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
-
-    def _get_edge_condition(self, person_id1: str, person_id2: str, span_frontier: bool):
-        p, r = self.graph.get_individual_info(person_id1)
-        q, s = self.graph.get_individual_info(person_id2)
-        t = self.graph.is_relationship_resolved(person_id1, person_id2)
-        return determine_edge_condition(p, q, r, s, t, self.save_living, span_frontier)
 
     def write_iteration(self, span_frontier: bool):
         relationships = self.graph.get_relationships()
         individuals = self.graph.get_individuals()
         residual = dict()
-        # in a given iteration, we can write relationships that are resolved (~UNTYPED_PARENT)
-        # or for which both vertices are in the current iteration
+        # in a given iteration, we write edges for which both vertices are in the current iteration
         with self.edges_filename.open("a") as file:
             writer = csv.writer(file)
-            for (src, dest), rel_type in relationships.items():
-                edge_condition = self._get_edge_condition(src, dest, span_frontier)
+            for (src, dest), (rel_type, rel_id) in relationships.items():
+                edge_condition = self.graph._get_edge_condition(src, dest, self.save_living, span_frontier)
                 if edge_condition == EdgeConditions.writeable:
-                    writer.writerow([src, dest, rel_type.value])
-                elif not span_frontier and edge_condition == EdgeConditions.spanning:
-                    residual[(src, dest)] = rel_type
+                    writer.writerow([src, dest, rel_type.value, rel_id])
+                elif not span_frontier and edge_condition in [EdgeConditions.spanning, EdgeConditions.spanning_and_unresolved]:
+                    residual[(src, dest)] = (rel_type, rel_id)
         with self.vertices_filename.open("a") as file:
             writer = csv.writer(file)
             for person in individuals:
@@ -56,12 +49,12 @@ class GraphWriter(GraphIO):
                 writer.writerow([fid])
         with self.frontier_edges_filename.open("w") as file:
             writer = csv.writer(file)
-            writer.writerow(['#source_vertex', 'destination_vertex, relationship_type'])
-            for (src, dest), rel_type in next_iter.items():
-                writer.writerow([src, dest, rel_type.value])
+            writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
+            for (src, dest), (rel_type, rel_id) in next_iter.items():
+                writer.writerow([src, dest, rel_type.value, rel_id])
         if not span_frontier:
             with self.residual_edges_filename.open("w") as file:
                 writer = csv.writer(file)
-                writer.writerow(['#source_vertex', 'destination_vertex, relationship_type'])
-                for (src, dest), rel_type in residual.items():
-                    writer.writerow([src, dest, rel_type.value])
+                writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
+                for (src, dest), (rel_type, rel_id) in residual.items():
+                    writer.writerow([src, dest, rel_type.value, rel_id])

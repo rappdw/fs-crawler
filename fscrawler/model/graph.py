@@ -59,8 +59,8 @@ class Graph:
     def __init__(self):
         self.individuals: Dict[str, Individual] = dict()
         self.living: Dict[str, Individual] = dict()
-        self.relationships: Dict[Tuple[str, str], RelationshipType] = dict()
-        self.next_iter_relationships: Dict[Tuple[str, str], RelationshipType] = dict()
+        self.relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]] = dict() # maps (src,dst) to (rel_type, rel_id)
+        self.next_iter_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]] = dict()
         self.frontier: Set[str] = set()
         self.individuals_visited: Set[str] = set()
         self.living_individuals_visited: Set[str] = set()
@@ -137,9 +137,9 @@ class Graph:
         self.relationship_count += 1
         self.relationships_visited.add(rel_key)
 
-    def add_next_iter(self, rel_key: Tuple[str, str], rel_type: RelationshipType):
+    def add_next_iter(self, rel_key: Tuple[str, str], rel_info: Tuple[RelationshipType, str]):
         self.relationship_count += 1
-        self.next_iter_relationships[rel_key] = rel_type
+        self.next_iter_relationships[rel_key] = rel_info
 
     def add_to_frontier(self, fs_id: str):
         if fs_id not in self.individuals_visited and \
@@ -157,14 +157,14 @@ class Graph:
                 self.individual_count += 1
                 self.individuals[person.fid] = person
 
-    def add_parent_child_relationship(self, child, parent,
+    def add_parent_child_relationship(self, child, parent, rel_id,
                                       rel_type: RelationshipType = RelationshipType.UNTYPED_PARENT):
         rel_key = (child, parent)
         if rel_key not in self.relationships_visited and rel_key not in self.relationships:
             self.relationship_count += 1
-            self.relationships[rel_key] = rel_type
+            self.relationships[rel_key] = (rel_type, rel_id)
 
-    def update_relationship(self, child, parent, rel_type: RelationshipType):
+    def update_relationship(self, child, parent, rel_type: RelationshipType, rel_id: str):
         rel_key = (child, parent)
         if rel_key in self.relationships_visited:
             return
@@ -172,7 +172,7 @@ class Graph:
             raise ValueError(f"Did not find {rel_key} in relationships collection")
         current_rel = self.relationships[(child, parent)]
         if current_rel in REL_TYPES_TO_REPLACE:
-            self.relationships[(child, parent)] = rel_type
+            self.relationships[(child, parent)] = (rel_type, rel_id)
 
     def iterate(self):
         # remove from the frontier anything that has been processed in this iteration
@@ -197,7 +197,7 @@ class Graph:
     def _get_edge_condition(self, person_id1: str, person_id2: str, save_living: bool, span_frontier: bool):
         p, r = self.get_individual_info(person_id1)
         q, s = self.get_individual_info(person_id2)
-        t = self.is_relationship_resolved(person_id1, person_id2)
+        t = False # we are no longer resolving relationships during a graph expansion iteration
         return determine_edge_condition(p, q, r, s, t, save_living, span_frontier)
 
     def end_iteration(self):
@@ -205,12 +205,12 @@ class Graph:
         # determine any relationships that need to be passed to the next iteration
         # for resolution. This handles the case of a parent in iteration n for a child
         # in iteration n+1 which may not be a biological parent (e.g. step, foster, etc.)
-        for (src, dest), rel_type in self.relationships.items():
+        for (src, dest), (rel_type, rel_id) in self.relationships.items():
             edge_condition = self._get_edge_condition(src, dest, True, True)
             if edge_condition == EdgeConditions.spanning_and_unresolved:
-                self.next_iter_relationships[(src, dest)] = rel_type
+                self.next_iter_relationships[(src, dest)] = (rel_type, rel_id)
             else:
-                temp[(src, dest)] = rel_type
+                temp[(src, dest)] = (rel_type, rel_id)
         self.relationships = temp
 
     def graph_stats(self) -> str:
