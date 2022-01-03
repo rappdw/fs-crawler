@@ -1,8 +1,8 @@
 import csv
 from fscrawler.model.graph import Graph, EdgeConditions, determine_edge_condition
-from fscrawler.model.individual import Gender
 
 from .graph_io import GraphIO
+
 
 class GraphWriter(GraphIO):
 
@@ -44,12 +44,7 @@ class GraphWriter(GraphIO):
             writer = csv.writer(file)
             for person in individuals:
                 if not person.living or self.save_living:
-                    color = ''
-                    if person.gender is Gender.Male:
-                        color = -1
-                    elif person.gender is Gender.Female:
-                        color = 1
-                    writer.writerow([person.fid, color, f"{person.name.surname}, {person.name.given}",
+                    writer.writerow([person.fid, person.gender.value, f"{person.name.surname}, {person.name.given}",
                                      person.iteration, person.lifespan])
 
         frontier = self.graph.get_frontier()

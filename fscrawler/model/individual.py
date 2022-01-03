@@ -4,9 +4,9 @@ from typing import Optional
 
 
 class Gender(Enum):
-    Male = 1
-    Female = 2
-    Unknown = 3
+    Male = -1
+    Unknown = 0
+    Female = 1
 
 
 class Individual:
