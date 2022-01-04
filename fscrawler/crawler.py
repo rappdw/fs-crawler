@@ -57,7 +57,6 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     validator = GraphValidator(out_dir, basename)
     relationships_to_validate = validator.get_relationships_to_validate()
 
-    logger.info(f"Resolving {len(relationships_to_validate)} relationships.")
     resolved_relationships = dict()  # maps (src,dst) to (rel_type, rel_id)
     fs.resolve_relationships(resolved_relationships, relationships_to_validate, loop)
 
