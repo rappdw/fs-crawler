@@ -8,9 +8,8 @@ import getpass
 
 from pathlib import Path
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, RelationshipReWriter
 from fscrawler.model.graph import Graph
-
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
           save_living=False, individuals=None):
@@ -54,6 +53,16 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     logger.info(f"Downloaded {graph.graph_stats()}, "
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
+
+    validator = GraphValidator(out_dir, basename)
+    relationships_to_validate = validator.get_relationships_to_validate()
+
+    logger.info(f"Resolving {len(relationships_to_validate)} relationships.")
+    resolved_relationships = dict()  # maps (src,dst) to (rel_type, rel_id)
+    fs.resolve_relationships(resolved_relationships, relationships_to_validate, loop)
+
+    rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
+    rewriter.rewrite_relationships()
 
 
 def main():
@@ -126,7 +135,6 @@ def main():
 
     crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
           args.save_living, individuals)
-
 
 if __name__ == "__main__":
     main()

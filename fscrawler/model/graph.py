@@ -164,16 +164,6 @@ class Graph:
             self.relationship_count += 1
             self.relationships[rel_key] = (rel_type, rel_id)
 
-    def update_relationship(self, child, parent, rel_type: RelationshipType, rel_id: str):
-        rel_key = (child, parent)
-        if rel_key in self.relationships_visited:
-            return
-        if rel_key not in self.relationships:
-            raise ValueError(f"Did not find {rel_key} in relationships collection")
-        current_rel = self.relationships[(child, parent)]
-        if current_rel in REL_TYPES_TO_REPLACE:
-            self.relationships[(child, parent)] = (rel_type, rel_id)
-
     def iterate(self):
         # remove from the frontier anything that has been processed in this iteration
         self.frontier -= self.individuals.keys()

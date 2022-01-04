@@ -8,6 +8,8 @@ from fscrawler.model.relationship_types import RelationshipType
 RELATIONSHIPS = [RelationshipType.BIOLOGICAL_PARENT, RelationshipType.UNTYPED_PARENT,
                  RelationshipType.UNSPECIFIED_PARENT]
 
+DEAD = 0
+LIVING = 3000
 
 def convert_lifespan_to_birth_year(lifespan: str) -> int:
     dash_idx = lifespan.find('-1')
@@ -17,16 +19,18 @@ def convert_lifespan_to_birth_year(lifespan: str) -> int:
         else:
             birth_year = int(lifespan[:dash_idx])
     elif lifespan == 'Living':
-        birth_year = 2020
+        birth_year = LIVING
     else:
-        birth_year = 0  # Deceased
+        birth_year = DEAD
     return birth_year
 
 
-class GraphReader(GraphIO):
+class GraphValidator(GraphIO):
 
     def __init__(self, out_dir, basename: str):
         super().__init__(out_dir, basename, None)
+        self.invalid_src = set()
+        self.child_to_rel: Dict[str, List[str]] = defaultdict(lambda : [])
         self.id_to_iteration_and_birth_year: Dict[str, (int, int)] = dict()
         self.id_to_invalid_relationships: DefaultDict[str, (Set[str], Set[str])] = defaultdict(lambda : (set(), set()))
         self.child_count = 0
@@ -59,7 +63,7 @@ class GraphReader(GraphIO):
                     continue
                 self.vertex_count += 1
                 fs_id = row[0]
-                g = row[1] or 0  # for backward compatibility
+                g = row[1]
                 gender = Gender(int(g))
                 gender_map[fs_id] = gender
                 self.id_to_iteration_and_birth_year[fs_id] = (int(row[3]), convert_lifespan_to_birth_year(row[4]))
@@ -85,8 +89,10 @@ class GraphReader(GraphIO):
                     continue
                 self.edge_count += 1
                 child_id = row[0]
-                rel_type = RelationshipType(row[2])
                 parent_id = row[1]
+                rel_type = RelationshipType(row[2])
+                rel_id = row[3]
+                self.child_to_rel[child_id].append(rel_id)
                 if rel_type in RELATIONSHIPS:
                     self.edge_count += 0
                     if parent_id in gender_map:
@@ -102,8 +108,7 @@ class GraphReader(GraphIO):
         del gender_map
 
         # calculate the invalid relationship counts
-        invalid_src = set()
-        for k, v in rel_counts.items():
+        for child_id, v in rel_counts.items():
             if v[0] > 1 or v[1] > 1 or v[2] > 1:
                 self.invalid_rel_src_count += 1
                 if v[Gender.Male.value] > 1 and v[Gender.Female.value] > 1 and v[Gender.Unknown.value] > 1:
@@ -128,10 +133,10 @@ class GraphReader(GraphIO):
                     self.max_mother = max(self.max_mother, v[Gender.Female.value])
                 elif v[Gender.Unknown.value] > 1:
                     self.invalid_unknown_count += 1
-                invalid_src.add(k)
+                self.invalid_src.add(child_id)
             if v[0] + v[1] + v[2] == 0:
                 self.no_rel_count += 1
-                invalid_src.add(k)
+                self.invalid_src.add(child_id)
 
         # calculate the birth year histogram for the invalid relationships
         with self.vertices_filename.open("r") as file:
@@ -140,11 +145,26 @@ class GraphReader(GraphIO):
                 if row[0].startswith('#'):
                     continue
                 fs_id = row[0]
-                if fs_id in invalid_src:
+                if fs_id in self.invalid_src:
                     self.by_histo[convert_lifespan_to_birth_year(row[4]) // 10 * 10] += 1
 
+    def get_relationships_to_validate(self):
+        relationships = set()
+        for id in self.invalid_src:
+            relationships.update(self.child_to_rel[id])
+        return relationships
+
+    @staticmethod
+    def get_birth_year_string(birth_year: int):
+        if birth_year == DEAD:
+            return 'Dead'
+        elif birth_year == LIVING:
+            return 'Living'
+        else:
+            return birth_year
+
     def get_validation_stats(self):
-        histo = '\n'.join([f"{k or 'Dead'}: {self.by_histo[k]}" for k in sorted(self.by_histo.keys())])
+        histo = '\n'.join([f"{self.get_birth_year_string(k)}: {self.by_histo[k]}" for k in sorted(self.by_histo.keys())])
 
         return f"Birth years for invalid counts: \n{histo}\n"\
                f"{self.vertex_count:,} total vertices.\n" \
@@ -160,4 +180,5 @@ class GraphReader(GraphIO):
                f"{self.invalid_unknown_count:,} invalid unknown count.\n" \
                f"{self.max_father:,} max father count.\n" \
                f"{self.max_mother:,} max mother count.\n" \
-               f"{self.no_rel_count:,} roots without relationships"
+               f"{self.no_rel_count:,} roots without relationships.\n" \
+               f"{len(self.invalid_src):,} source nodes with invalid relationships."

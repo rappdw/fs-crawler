@@ -2,6 +2,8 @@ import asyncio
 import itertools
 import logging
 import time
+
+from typing import Dict, Tuple
 from urllib.parse import urlparse
 from .session import Session
 from fscrawler.model.individual import Individual
@@ -76,26 +78,29 @@ class FamilySearchAPI:
                 rel_type = RelationshipType(new_type)
         return rel_type
 
-    async def get_relationships_from_id(self, graph, rel_id):
-        self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), graph)
+    async def get_relationships_from_id(self, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]], rel_id):
+        self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), resolved_relationships)
 
     @staticmethod
-    def _update_relationship_info(rel, child, parent, fact_key, rel_id, graph):
+    def _update_relationship_info(rel, child, parent, fact_key, rel_id,
+                                  resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]]):
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
                                                                       RelationshipType.UNSPECIFIED_PARENT)
-            graph.update_relationship(child, parent, relationship_type, rel_id)
+            resolved_relationships[(child, parent)] = (relationship_type, rel_id)
+        else:
+            logger.warning(f"Child: {child}, Parent: {parent}, Relationship: {rel_id}, value unexpected")
 
     @staticmethod
-    def process_relationship_result(data, graph):
+    def process_relationship_result(data, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]]):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 rel_id = rel["id"]
                 parent1 = rel["parent1"]["resourceId"] if "parent1" in rel else None
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
-                FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id, graph)
-                FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id, graph)
+                FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id, resolved_relationships)
+                FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id, resolved_relationships)
 
     async def get_persons_from_list(self, ids, graph, iteration):
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
@@ -139,7 +144,7 @@ class FamilySearchAPI:
             if delay:
                 time.sleep(delay)
 
-    def resolve_relationships(self, graph, relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
+    def resolve_relationships(self, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]], relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ resolve relationship types in the graph
             :param relationships: iterable relationship ids to resolve
             :param graph: graph object that is constructed through fs api requests
@@ -147,7 +152,7 @@ class FamilySearchAPI:
             :param delay: delay to insert between successive concurrent get_persons requests
         """
         for requests in partition_requests(relationships, None, 1, MAX_CONCURRENT_REQUESTS * 5):
-            coroutines = [self.get_relationships_from_id(graph, request) for request in requests]
+            coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             loop.run_until_complete(asyncio.gather(*coroutines))
             if delay:
                 time.sleep(delay)

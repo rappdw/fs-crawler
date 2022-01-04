@@ -1,12 +1,16 @@
 import argparse
 import sys
 from pathlib import Path
-from fscrawler.controller.graph_validator_reader import GraphReader
+from fscrawler.controller import GraphValidator
 
 
 def validate(in_dir, basename):
-    reader = GraphReader(in_dir, basename)
+    reader = GraphValidator(in_dir, basename)
     print(reader.get_validation_stats())
+    if len(reader.invalid_src) < 100:
+        print("\nInvalid Source Vertices\n")
+        for id in reader.invalid_src:
+            print(id)
 
 
 def main():
