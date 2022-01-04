@@ -32,9 +32,9 @@ def time_estimate(count, msg, person: bool):
 
     if time_estimate > 60:
         time_estimate = ceil(time_estimate / 60)
-        logger.info(f"Estimating at least {time_estimate} minutes to {msg}.")
+        logger.info(f"Estimating {time_estimate} minutes to {msg}.")
     elif time_estimate > 5:
-        logger.info(f"Estimating at least {time_estimate} seconds to {msg}.")
+        logger.info(f"Estimating {time_estimate} seconds to {msg}.")
 
 
 def split_seq(iterable, size):

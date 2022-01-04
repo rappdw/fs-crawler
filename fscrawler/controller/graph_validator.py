@@ -1,15 +1,19 @@
 import csv
 from collections import defaultdict
-from typing import DefaultDict, List, Dict, Set
+from typing import DefaultDict, List, Dict, Tuple
 from .graph_io import GraphIO
 from fscrawler.model.individual import Gender
 from fscrawler.model.relationship_types import RelationshipType
 
-RELATIONSHIPS = [RelationshipType.BIOLOGICAL_PARENT, RelationshipType.UNTYPED_PARENT,
-                 RelationshipType.UNSPECIFIED_PARENT]
+RELATIONSHIPS = [
+    RelationshipType.BIOLOGICAL_PARENT,
+    RelationshipType.UNTYPED_PARENT,
+    RelationshipType.UNSPECIFIED_PARENT
+]
 
 DEAD = 0
 LIVING = 3000
+
 
 def convert_lifespan_to_birth_year(lifespan: str) -> int:
     dash_idx = lifespan.find('-1')
@@ -30,18 +34,17 @@ class GraphValidator(GraphIO):
     def __init__(self, out_dir, basename: str):
         super().__init__(out_dir, basename, None)
         self.invalid_src = set()
-        self.child_to_rel: Dict[str, List[str]] = defaultdict(lambda : [])
-        self.id_to_iteration_and_birth_year: Dict[str, (int, int)] = dict()
-        self.id_to_invalid_relationships: DefaultDict[str, (Set[str], Set[str])] = defaultdict(lambda : (set(), set()))
+        self.child_to_rel: Dict[str, List[str]] = defaultdict(lambda: [])
+        self.id_to_iteration_and_birth_year: Dict[str, Tuple[int, int]] = dict()
         self.child_count = 0
         self.vertex_count = 0
         self.unknown_vertex_count = 0
         self.edge_count = 0
         self.frontier_vertex_count = 0
+        self.invalid_male_female_and_unknown_count = 0
         self.invalid_male_and_female_count = 0
         self.invalid_male_and_unknown_count = 0
         self.invalid_female_and_unknown_count = 0
-        self.invalid_male_female_and_unknown_count = 0
         self.invalid_father_count = 0
         self.invalid_mother_count = 0
         self.invalid_unknown_count = 0
@@ -110,52 +113,46 @@ class GraphValidator(GraphIO):
         # calculate the invalid relationship counts
         for child_id, v in rel_counts.items():
             if v[0] > 1 or v[1] > 1 or v[2] > 1:
+                self.invalid_src.add(child_id)
                 self.invalid_rel_src_count += 1
+
+                if v[Gender.Male.value] > 1:
+                    self.max_father = max(self.max_father, v[Gender.Male.value])
+                if v[Gender.Female.value] > 1:
+                    self.max_mother = max(self.max_mother, v[Gender.Female.value])
+
                 if v[Gender.Male.value] > 1 and v[Gender.Female.value] > 1 and v[Gender.Unknown.value] > 1:
                     self.invalid_male_female_and_unknown_count += 1
-                    self.max_father = max(self.max_father, v[Gender.Male.value])
-                    self.max_mother = max(self.max_mother, v[Gender.Female.value])
                 elif v[Gender.Female.value] > 1 and v[Gender.Unknown.value] > 1:
                     self.invalid_female_and_unknown_count += 1
-                    self.max_mother = max(self.max_mother, v[Gender.Female.value])
                 elif v[Gender.Male.value] > 1 and v[Gender.Unknown.value] > 1:
                     self.invalid_male_and_unknown_count += 1
-                    self.max_father = max(self.max_father, v[Gender.Male.value])
                 elif v[Gender.Male.value] > 1 and v[Gender.Female.value] > 1:
                     self.invalid_male_and_female_count += 1
-                    self.max_father = max(self.max_father, v[Gender.Male.value])
-                    self.max_mother = max(self.max_mother, v[Gender.Female.value])
                 elif v[Gender.Male.value] > 1:
                     self.invalid_father_count += 1
-                    self.max_father = max(self.max_father, v[Gender.Male.value])
                 elif v[Gender.Female.value] > 1:
                     self.invalid_mother_count += 1
-                    self.max_mother = max(self.max_mother, v[Gender.Female.value])
                 elif v[Gender.Unknown.value] > 1:
                     self.invalid_unknown_count += 1
-                self.invalid_src.add(child_id)
+
             if v[0] + v[1] + v[2] == 0:
                 self.no_rel_count += 1
                 self.invalid_src.add(child_id)
 
         # calculate the birth year histogram for the invalid relationships
-        with self.vertices_filename.open("r") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if row[0].startswith('#'):
-                    continue
-                fs_id = row[0]
-                if fs_id in self.invalid_src:
-                    self.by_histo[convert_lifespan_to_birth_year(row[4]) // 10 * 10] += 1
+        for child_id in self.invalid_src:
+            (iteration, birth_year) = self.id_to_iteration_and_birth_year[child_id]
+            self.by_histo[birth_year // 10 * 10] += 1
 
     def get_relationships_to_validate(self):
         relationships = set()
-        for id in self.invalid_src:
-            relationships.update(self.child_to_rel[id])
+        for rel_id in self.invalid_src:
+            relationships.update(self.child_to_rel[rel_id])
         return relationships
 
     @staticmethod
-    def get_birth_year_string(birth_year: int):
+    def get_year_string(birth_year: int):
         if birth_year == DEAD:
             return 'Dead'
         elif birth_year == LIVING:
@@ -163,8 +160,19 @@ class GraphValidator(GraphIO):
         else:
             return birth_year
 
+    def get_valdiation_histogram(self):
+        # returns the number of invalid relationships in each iteration
+        histo: DefaultDict[int, int] = defaultdict(int)
+        for child_id in self.invalid_src:
+            (iteration, _) = self.id_to_iteration_and_birth_year[child_id]
+            histo[iteration] += 1
+        return '\n'.join([f"Iteration {k}: {histo[k]}" for k in sorted(histo.keys())])
+
+    def get_invalid_rel_count(self):
+        return len(self.invalid_src)
+
     def get_validation_stats(self):
-        histo = '\n'.join([f"{self.get_birth_year_string(k)}: {self.by_histo[k]}" for k in sorted(self.by_histo.keys())])
+        histo = '\n'.join([f"{self.get_year_string(k)}: {self.by_histo[k]}" for k in sorted(self.by_histo.keys())])
 
         return f"Birth years for invalid counts: \n{histo}\n"\
                f"{self.vertex_count:,} total vertices.\n" \

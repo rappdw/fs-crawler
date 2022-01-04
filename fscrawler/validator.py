@@ -11,6 +11,8 @@ def validate(in_dir, basename):
         print("\nInvalid Source Vertices\n")
         for id in reader.invalid_src:
             print(id)
+    print("\nInvalid relationships by iteration:")
+    print(reader.get_valdiation_histogram())
 
 
 def main():
