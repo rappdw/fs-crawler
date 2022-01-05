@@ -24,6 +24,7 @@ DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2  # the number of seconds to delay before i
 logger = logging.getLogger(__name__)
 interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"}
 
+
 def time_estimate(count, msg, person: bool):
     if person:
         time_estimate = ceil(count / MAX_PERSONS / MAX_CONCURRENT_REQUESTS * DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
@@ -91,21 +92,21 @@ class FamilySearchAPI:
                 rel_type = RelationshipType(new_type)
         return rel_type
 
-    async def get_relationships_from_id(self, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]], rel_id):
+    async def get_relationships_from_id(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]], rel_id):
         self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), resolved_relationships)
 
     @staticmethod
     def _update_relationship_info(rel, child, parent, fact_key, rel_id,
-                                  resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]]):
+                                  resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
                                                                       RelationshipType.UNSPECIFIED_PARENT)
-            resolved_relationships[(child, parent)] = (relationship_type, rel_id)
+            resolved_relationships[child][parent] = (relationship_type, rel_id)
         else:
             logger.warning(f"Child: {child}, Parent: {parent}, Relationship: {rel_id}, value unexpected")
 
     @staticmethod
-    def process_relationship_result(data, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]]):
+    def process_relationship_result(data, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 rel_id = rel["id"]
@@ -159,10 +160,9 @@ class FamilySearchAPI:
             if delay:
                 time.sleep(delay)
 
-    def resolve_relationships(self, resolved_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]], relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
+    def resolve_relationships(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]], relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
         """ resolve relationship types in the graph
             :param relationships: iterable relationship ids to resolve
-            :param graph: graph object that is constructed through fs api requests
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """

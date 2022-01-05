@@ -7,7 +7,7 @@ from .graph_io import GraphIO
 
 class RelationshipReWriter(GraphIO):
 
-    def __init__(self, out_dir, basename: str, graph: Graph, relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]]):
+    def __init__(self, out_dir, basename: str, graph: Graph, relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
         super().__init__(out_dir, basename, graph)
         self.relationships = relationships
         # copy original edges file to "orig.edges.csv"
@@ -31,7 +31,7 @@ class RelationshipReWriter(GraphIO):
                 parent_id = row[1]
                 rel_type = RelationshipType(row[2])
                 rel_id = row[3]
-                if (child_id, parent_id) in self.relationships:
-                    (rel_type, rel_id) = self.relationships[(child_id, parent_id)]
+                if parent_id in self.relationships[child_id]:
+                    (rel_type, rel_id) = self.relationships[child_id][parent_id]
                 writer.writerow([child_id, parent_id, rel_type.value, rel_id])
 

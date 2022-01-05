@@ -1,3 +1,4 @@
+from collections import defaultdict
 from enum import Enum
 from itertools import chain
 from typing import Dict, Tuple, Set, Optional
@@ -5,10 +6,16 @@ from typing import Dict, Tuple, Set, Optional
 from .individual import Individual
 from .relationship_types import RelationshipType
 
-REL_TYPES_TO_VALIDATE = {RelationshipType.UNTYPED_PARENT, RelationshipType.BIOLOGICAL_PARENT,
-                         RelationshipType.UNSPECIFIED_PARENT}
+REL_TYPES_TO_VALIDATE = {
+    RelationshipType.UNTYPED_PARENT,
+    RelationshipType.BIOLOGICAL_PARENT,
+    RelationshipType.UNSPECIFIED_PARENT
+}
 
-REL_TYPES_TO_REPLACE = {RelationshipType.UNTYPED_PARENT, RelationshipType.UNSPECIFIED_PARENT}
+REL_TYPES_TO_REPLACE = {
+    RelationshipType.UNTYPED_PARENT,
+    RelationshipType.UNSPECIFIED_PARENT
+}
 
 
 class EdgeConditions(Enum):
@@ -25,7 +32,7 @@ def determine_edge_condition(p1_living: bool, p2_living: bool, p1_frontier: bool
     if (p2_frontier and p2_living) or (p1_frontier and p1_living):
         return EdgeConditions.invalid_state
 
-    # if the relationship contains a living and we aren't saving living we shouldn't write
+    # if the relationship contains a living, and we aren't saving living we shouldn't write
     if (p1_living or p2_living) and not save_living:
         return EdgeConditions.restricted
     # if we aren't spanning the frontier we are ok regardless of relationship type
@@ -59,8 +66,9 @@ class Graph:
     def __init__(self):
         self.individuals: Dict[str, Individual] = dict()
         self.living: Dict[str, Individual] = dict()
-        self.relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]] = dict() # maps (src,dst) to (rel_type, rel_id)
-        self.next_iter_relationships: Dict[Tuple[str, str], Tuple[RelationshipType, str]] = dict()
+        # maps src to dictionary mapping dst to (rel_type, rel_id)
+        self.relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
+        self.next_iter_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
         self.frontier: Set[str] = set()
         self.individuals_visited: Set[str] = set()
         self.living_individuals_visited: Set[str] = set()
@@ -78,7 +86,7 @@ class Graph:
 
     def get_individual_info(self, fs_id: str) -> Tuple[bool, bool]:
         """returns info about an individual.
-        The first element is True if we've visited the individual and they are living. If false
+        The first element is True if we've visited the individual, and they are living. If false
         it indicates that they are not living or that we haven't visited.
         The second element is True if the individual is in our frontier (we haven't visited).
         It is invalid for both elements of the Tuple to be True"""
@@ -86,30 +94,6 @@ class Graph:
         if info[0] and info[1]:
             raise ValueError(f'Living flag for individual is set, but no individual data for: {fs_id}')
         return info
-
-    def is_relationship_resolved(self, child: str, parent: str) -> bool:
-        """determines if a relationship is resolved.
-        Resolved indicates that either we have determined the nature of the relationship
-        via a call to retrieve relationship facts, or there is insufficient information to
-        assume that the relationship is not biological """
-        rel_key = (child, parent)
-        if rel_key in self.relationships_visited:
-            # in a previous iteration, we have determined this relationship to be resolved
-            # don't think we should ever hit this case, but include for completeness
-            return True
-        if rel_key in self.relationships:
-            if self.relationships[rel_key] not in REL_TYPES_TO_REPLACE:
-                # we've resolved the relationship to a specific type
-                return True
-            # final case we consider resolved is one in which we have the child in the current
-            # processing set and the parent either in the current processing set or the frontier
-            # if the relationship in this case is "UNTYPED" then we didn't have multiple
-            # relationships and thus didn't require resolution (case handled above) so we can
-            # assume absence of evidence of multiple parental type relationships so we'll consider
-            # this relationship resolved assuming type biological
-            if child in self.processing:
-                return True
-        return False
 
     def get_individuals(self):
         return chain(self.individuals.values(), self.living.values())
@@ -137,9 +121,9 @@ class Graph:
         self.relationship_count += 1
         self.relationships_visited.add(rel_key)
 
-    def add_next_iter(self, rel_key: Tuple[str, str], rel_info: Tuple[RelationshipType, str]):
+    def add_next_iter(self, src: str, dest: str, rel_info: Tuple[RelationshipType, str]):
         self.relationship_count += 1
-        self.next_iter_relationships[rel_key] = rel_info
+        self.next_iter_relationships[src][dest] = rel_info
 
     def add_to_frontier(self, fs_id: str):
         if fs_id not in self.individuals_visited and \
@@ -159,10 +143,9 @@ class Graph:
 
     def add_parent_child_relationship(self, child, parent, rel_id,
                                       rel_type: RelationshipType = RelationshipType.UNTYPED_PARENT):
-        rel_key = (child, parent)
-        if rel_key not in self.relationships_visited and rel_key not in self.relationships:
+        if (child, parent) not in self.relationships_visited:
             self.relationship_count += 1
-            self.relationships[rel_key] = (rel_type, rel_id)
+            self.relationships[child][parent] = (rel_type, rel_id)
 
     def iterate(self):
         # remove from the frontier anything that has been processed in this iteration
@@ -172,13 +155,15 @@ class Graph:
         # update our visited sets with what has been processed
         self.individuals_visited |= self.individuals.keys()
         self.living_individuals_visited |= self.living.keys()
-        self.relationships_visited |= self.relationships.keys()
+        for src in self.relationships:
+            for dest in self.relationships[src].keys():
+                self.relationships_visited.add((src, dest))
 
         # reset the collections that are used to process
         self.individuals = dict()
         self.living = dict()
         self.relationships = self.next_iter_relationships
-        self.next_iter_relationships = dict()
+        self.next_iter_relationships = defaultdict(lambda: dict())
 
         # tee up the next iteration
         self.processing = self.frontier
@@ -187,20 +172,22 @@ class Graph:
     def _get_edge_condition(self, person_id1: str, person_id2: str, save_living: bool, span_frontier: bool):
         p, r = self.get_individual_info(person_id1)
         q, s = self.get_individual_info(person_id2)
-        t = False # we are no longer resolving relationships during a graph expansion iteration
+        t = False  # we are no longer resolving relationships during a graph expansion iteration
         return determine_edge_condition(p, q, r, s, t, save_living, span_frontier)
 
     def end_iteration(self):
-        temp = dict()
+        temp = defaultdict(lambda: dict())
         # determine any relationships that need to be passed to the next iteration
         # for resolution. This handles the case of a parent in iteration n for a child
         # in iteration n+1 which may not be a biological parent (e.g. step, foster, etc.)
-        for (src, dest), (rel_type, rel_id) in self.relationships.items():
-            edge_condition = self._get_edge_condition(src, dest, True, True)
-            if edge_condition == EdgeConditions.spanning_and_unresolved:
-                self.next_iter_relationships[(src, dest)] = (rel_type, rel_id)
-            else:
-                temp[(src, dest)] = (rel_type, rel_id)
+
+        for src, dest_dict in self.relationships.items():
+            for dest in dest_dict.keys():
+                edge_condition = self._get_edge_condition(src, dest, True, True)
+                if edge_condition == EdgeConditions.spanning_and_unresolved:
+                    self.next_iter_relationships[src][dest] = dest_dict[dest]
+                else:
+                    temp[src][dest] = dest_dict[dest]
         self.relationships = temp
 
     def graph_stats(self) -> str:

@@ -1,5 +1,5 @@
 import csv
-from fscrawler.model.graph import Graph, EdgeConditions, determine_edge_condition
+from fscrawler.model.graph import Graph, EdgeConditions
 
 from .graph_io import GraphIO
 
@@ -27,12 +27,13 @@ class GraphWriter(GraphIO):
         # in a given iteration, we write edges for which both vertices are in the current iteration
         with self.edges_filename.open("a") as file:
             writer = csv.writer(file)
-            for (src, dest), (rel_type, rel_id) in relationships.items():
-                edge_condition = self.graph._get_edge_condition(src, dest, self.save_living, span_frontier)
-                if edge_condition == EdgeConditions.writeable:
-                    writer.writerow([src, dest, rel_type.value, rel_id])
-                elif not span_frontier and edge_condition in [EdgeConditions.spanning, EdgeConditions.spanning_and_unresolved]:
-                    residual[(src, dest)] = (rel_type, rel_id)
+            for src, dest_dict in relationships.items():
+                for dest, (rel_type, rel_id) in dest_dict.items():
+                    edge_condition = self.graph._get_edge_condition(src, dest, self.save_living, span_frontier)
+                    if edge_condition == EdgeConditions.writeable:
+                        writer.writerow([src, dest, rel_type.value, rel_id])
+                    elif not span_frontier and edge_condition in [EdgeConditions.spanning, EdgeConditions.spanning_and_unresolved]:
+                        residual[(src, dest)] = (rel_type, rel_id)
         with self.vertices_filename.open("a") as file:
             writer = csv.writer(file)
             for person in individuals:
@@ -50,8 +51,9 @@ class GraphWriter(GraphIO):
         with self.frontier_edges_filename.open("w") as file:
             writer = csv.writer(file)
             writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
-            for (src, dest), (rel_type, rel_id) in next_iter.items():
-                writer.writerow([src, dest, rel_type.value, rel_id])
+            for src, dest_dict in next_iter.items():
+                for dest, (rel_type, rel_id) in dest_dict.items():
+                    writer.writerow([src, dest, rel_type.value, rel_id])
         if not span_frontier:
             with self.residual_edges_filename.open("w") as file:
                 writer = csv.writer(file)

@@ -6,10 +6,13 @@ import time
 import argparse
 import getpass
 
+from collections import defaultdict
 from pathlib import Path
+from typing import Dict, Tuple
 
 from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, RelationshipReWriter
 from fscrawler.model.graph import Graph
+from fscrawler.model import RelationshipType
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
           save_living=False, individuals=None):
@@ -58,7 +61,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     logger.info(f"There are {validator.get_invalid_rel_count()} invalid relationships: \n{validator.get_valdiation_histogram()}")
     relationships_to_validate = validator.get_relationships_to_validate()
 
-    resolved_relationships = dict()  # maps (src,dst) to (rel_type, rel_id)
+    resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
     fs.resolve_relationships(resolved_relationships, relationships_to_validate, loop)
 
     rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)

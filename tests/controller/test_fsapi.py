@@ -120,18 +120,18 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
 
     relationships = graph.get_relationships()
 
-    assert relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.UNTYPED_PARENT
-    assert relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.UNTYPED_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] == RelationshipType.UNTYPED_PARENT
-    fs_api.process_relationship_result(step_relationship_json, graph)
-    assert relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.UNSPECIFIED_PARENT
-    assert relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.UNTYPED_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNTYPED_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNSPECIFIED_PARENT
-    fs_api.process_relationship_result(bio_relationship_json, graph)
-    assert relationships[('KWZG-916', 'KWZQ-QZV')] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships[('KWZG-916', 'KWZQ-QZG')] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNTYPED_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships[('KWZG-916', 'KJDT-2VN')] != RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] == RelationshipType.UNTYPED_PARENT
+    fs_api.process_relationship_result(step_relationship_json, relationships)
+    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
+    fs_api.process_relationship_result(bio_relationship_json, relationships)
+    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
