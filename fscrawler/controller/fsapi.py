@@ -166,14 +166,12 @@ class FamilySearchAPI:
             :param loop: asyncio event loop
             :param delay: delay to insert between successive concurrent get_persons requests
         """
-        logger.info(f"Resolving {len(relationships)} relationships.")
         time_estimate(len(relationships), "complete relationship resolution", False)
         for requests in partition_requests(relationships, None, 1, MAX_CONCURRENT_REQUESTS * 5):
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             loop.run_until_complete(asyncio.gather(*coroutines))
             if delay:
                 time.sleep(delay)
-        logger.info("Relationship resolution complete.")
 
     def iterate(self, iteration: int, iteration_bound: int, graph: Graph, loop, writer: GraphWriter = None):
         final_iteration = iteration == iteration_bound - 1

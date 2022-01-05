@@ -1,13 +1,18 @@
 import csv
 from collections import defaultdict
-from typing import DefaultDict, List, Dict, Tuple
+from typing import DefaultDict, List, Dict, Tuple, Set
 from .graph_io import GraphIO
 from fscrawler.model.individual import Gender
 from fscrawler.model.relationship_types import RelationshipType
 
-RELATIONSHIPS = [
-    RelationshipType.BIOLOGICAL_PARENT,
+# Relationship types that require further resolution prior to final validation
+RELATIONSHIPS_RESOLUTIONS = [
     RelationshipType.UNTYPED_PARENT,
+]
+
+# Relationship types that if violations represent an invalid relationship
+RELATIONSHIP_VALIDATIONS = [
+    RelationshipType.BIOLOGICAL_PARENT,
     RelationshipType.UNSPECIFIED_PARENT
 ]
 
@@ -33,8 +38,10 @@ class GraphValidator(GraphIO):
 
     def __init__(self, out_dir, basename: str):
         super().__init__(out_dir, basename, None)
+        self.invalid_relationships_filename = out_dir / f"{basename}.invalid.edges.csv"
         self.invalid_src = set()
-        self.child_to_rel: Dict[str, List[str]] = defaultdict(lambda: [])
+        self.resolution_src = set()
+        self.child_to_rel: Dict[str, Set[str]] = defaultdict(lambda: set())
         self.id_to_iteration_and_birth_year: Dict[str, Tuple[int, int]] = dict()
         self.child_count = 0
         self.vertex_count = 0
@@ -48,7 +55,6 @@ class GraphValidator(GraphIO):
         self.invalid_father_count = 0
         self.invalid_mother_count = 0
         self.invalid_unknown_count = 0
-        self.invalid_rel_src_count = 0
         self.no_rel_count = 0
         self.max_father = 0
         self.max_mother = 0
@@ -84,7 +90,8 @@ class GraphValidator(GraphIO):
 
         # load the visited relationships
         unknown_vertices = set()
-        rel_counts: DefaultDict[str, List[int]] = defaultdict(lambda: [0, 0, 0])
+        rel_resolution_counts: DefaultDict[str, List[int]] = defaultdict(lambda: [0, 0, 0])
+        rel_validation_counts: DefaultDict[str, List[int]] = defaultdict(lambda: [0, 0, 0])
         with self.edges_filename.open("r") as file:
             reader = csv.reader(file)
             for row in reader:
@@ -95,26 +102,27 @@ class GraphValidator(GraphIO):
                 parent_id = row[1]
                 rel_type = RelationshipType(row[2])
                 rel_id = row[3]
-                self.child_to_rel[child_id].append(rel_id)
-                if rel_type in RELATIONSHIPS:
-                    self.edge_count += 0
-                    if parent_id in gender_map:
-                        gender = gender_map[row[1]].value
-                        counts = rel_counts[child_id]
-                        counts[gender] += 1
-                    else:
-                        if parent_id not in frontier:
-                            unknown_vertices.add(parent_id)
+                self.child_to_rel[child_id].add(rel_id)
+                if parent_id in gender_map:
+                    parent_gender = gender_map[parent_id].value
+                    if rel_type in RELATIONSHIP_VALIDATIONS:
+                        counts = rel_validation_counts[child_id]
+                        counts[parent_gender] += 1
+                    if rel_type in RELATIONSHIPS_RESOLUTIONS:
+                        counts = rel_resolution_counts[child_id]
+                        counts[parent_gender] += 1
+                else:
+                    if parent_id not in frontier:
+                        unknown_vertices.add(parent_id)
 
-        self.child_count = len(rel_counts)
+        self.child_count = len(rel_resolution_counts) + len(rel_validation_counts)
         self.unknown_vertex_count = len(unknown_vertices)
         del gender_map
 
         # calculate the invalid relationship counts
-        for child_id, v in rel_counts.items():
+        for child_id, v in rel_validation_counts.items():
             if v[0] > 1 or v[1] > 1 or v[2] > 1:
                 self.invalid_src.add(child_id)
-                self.invalid_rel_src_count += 1
 
                 if v[Gender.Male.value] > 1:
                     self.max_father = max(self.max_father, v[Gender.Male.value])
@@ -145,10 +153,15 @@ class GraphValidator(GraphIO):
             (iteration, birth_year) = self.id_to_iteration_and_birth_year[child_id]
             self.by_histo[birth_year // 10 * 10] += 1
 
-    def get_relationships_to_validate(self):
+        # calculate the relationships requiring resolution
+        for child_id, v in rel_resolution_counts.items():
+            if v[0] > 1 or v[1] > 1 or v[2] > 1:
+                self.resolution_src.add(child_id)
+
+    def get_relationships_to_resolve(self):
         relationships = set()
-        for rel_id in self.invalid_src:
-            relationships.update(self.child_to_rel[rel_id])
+        for rel_id in self.resolution_src:
+            relationships |= self.child_to_rel[rel_id]
         return relationships
 
     @staticmethod
@@ -171,6 +184,14 @@ class GraphValidator(GraphIO):
     def get_invalid_rel_count(self):
         return len(self.invalid_src)
 
+    def save_invalid_relationships(self):
+        with self.invalid_relationships_filename.open("w") as file:
+            writer = csv.writer(file)
+            writer.writerow(['#source_vertex', 'relationship_id'])
+            for child_id in self.invalid_src:
+                for rel_id in self.child_to_rel[child_id]:
+                    writer.writerow([child_id, rel_id])
+
     def get_validation_stats(self):
         histo = '\n'.join([f"{self.get_year_string(k)}: {self.by_histo[k]}" for k in sorted(self.by_histo.keys())])
 
@@ -189,4 +210,5 @@ class GraphValidator(GraphIO):
                f"{self.max_father:,} max father count.\n" \
                f"{self.max_mother:,} max mother count.\n" \
                f"{self.no_rel_count:,} roots without relationships.\n" \
+               f"{len(self.resolution_src):,} source nodes requiring relationship resolution.\n" \
                f"{len(self.invalid_src):,} source nodes with invalid relationships."

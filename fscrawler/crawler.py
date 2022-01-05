@@ -58,17 +58,21 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
 
     validator = GraphValidator(out_dir, basename)
-    logger.info(f"There are {validator.get_invalid_rel_count()} invalid relationships: \n{validator.get_valdiation_histogram()}")
-    relationships_to_validate = validator.get_relationships_to_validate()
+    relationships_to_resolve = validator.get_relationships_to_resolve()
 
     resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
-    fs.resolve_relationships(resolved_relationships, relationships_to_validate, loop)
+    logger.info(f"Resolving {len(relationships_to_resolve)} relationships.")
+    fs.resolve_relationships(resolved_relationships, relationships_to_resolve, loop)
 
     rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
     rewriter.rewrite_relationships()
 
     validator = GraphValidator(out_dir, basename)
-    logger.info(f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n{validator.get_valdiation_histogram()}")
+    if validator.get_invalid_rel_count() > 0:
+        validator.save_invalid_relationships()
+        logger.info(f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n{validator.get_valdiation_histogram()}")
+    else:
+        logger.info("Crawl complete.")
 
 
 def main():
