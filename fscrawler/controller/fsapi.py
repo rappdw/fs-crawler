@@ -2,6 +2,7 @@ import asyncio
 import itertools
 import logging
 import time
+import traceback
 
 from math import ceil
 from typing import Dict, Tuple
@@ -20,9 +21,9 @@ RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
 # max persons is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
 MAX_PERSONS = 200  # The maximum number of persons that will be in a get request for person information
 MAX_CONCURRENT_PERSON_REQUESTS = 40  # the maximum number of concurrent requests that will be issued
-MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 30  # the maximum number of concurrent requests that will be issued
-DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2  # the number of seconds to delay before issuing a subsequent block of requests
-DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS = 3  # the number of seconds to delay before issuing a subsequent block of requests
+MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200  # the maximum number of concurrent requests that will be issued
+DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2 # the number of seconds to delay before issuing a subsequent block of requests
+DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS = 2  # the number of seconds to delay before issuing a subsequent block of requests
 
 logger = logging.getLogger(__name__)
 interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"}
@@ -136,21 +137,6 @@ class FamilySearchAPI:
                     FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
                     FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
-    def add_individuals_to_graph(self, iteration, graph, ids, loop, delay=DELAY_BETWEEN_SUBSEQUENT_REQUESTS):
-        """ add individuals to the graph
-            :param ids: the ids to get person records for
-            :param iteration: upper bound on how many relationships from seed individual(s) should be traversed
-            :param graph: graph object that is constructed through fs api requests
-            :param loop: asyncio event loop
-            :param delay: delay to insert between successive concurrent get_persons requests
-        """
-        partitioned_requests = partition_requests(ids, graph.get_visited_individuals())
-        for requests in tqdm(partitioned_requests, total=ceil(len(graph.processing) / MAX_CONCURRENT_PERSON_REQUESTS / MAX_PERSONS)):
-            coroutines = [self.get_persons_from_list(request, graph, iteration) for request in requests]
-            loop.run_until_complete(asyncio.gather(*coroutines))
-            if delay:
-                time.sleep(delay)
-
     def resolve_relationships(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]],
                               relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
         """ resolve relationship types in the graph
@@ -162,7 +148,13 @@ class FamilySearchAPI:
         partitioned_requests = partition_requests(relationships, None, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
         for requests in tqdm(partitioned_requests, total=ceil(len(relationships) / MAX_CONCURRENT_RELATIONSHIP_REQUESTS)):
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
-            loop.run_until_complete(asyncio.gather(*coroutines))
+            results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
+            for result in results:
+                if result: # no return from get_relationships_from_id, so we have an exception
+                    # we can tolerate exceptions during relationship resolution... just continue
+                    # processing, but log a warning
+                    logger.warning(traceback.format_exception(result))
+                    return
             if delay:
                 time.sleep(delay)
 
@@ -171,7 +163,14 @@ class FamilySearchAPI:
         graph.iterate()
 
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
-        self.add_individuals_to_graph(iteration, graph, graph.get_ids_to_process(), loop)
+        partitioned_requests = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
+        for requests in tqdm(partitioned_requests, total=ceil(len(graph.processing) / MAX_CONCURRENT_PERSON_REQUESTS / MAX_PERSONS)):
+            coroutines = [self.get_persons_from_list(request, graph, iteration) for request in requests]
+            results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
+            for result in results:
+                if result: # no return from get_relationships_from_id, so we have an exception
+                    raise result
+            time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
         logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
 
         graph.end_iteration()
