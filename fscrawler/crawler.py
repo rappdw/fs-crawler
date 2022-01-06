@@ -1,4 +1,6 @@
 import asyncio
+import faulthandler
+import signal
 import logging
 import re
 import sys
@@ -147,4 +149,6 @@ def main():
           args.save_living, individuals)
 
 if __name__ == "__main__":
+    faulthandler.enable(all_threads=True)
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     main()
