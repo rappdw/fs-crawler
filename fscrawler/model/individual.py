@@ -14,8 +14,6 @@ class Individual:
     counter = 0
 
     def __init__(self, data, iteration):
-        Individual.counter += 1
-        self.num = Individual.counter
         self.fid: str = data["id"]
         self.name: Optional[Name]
         self.gender: Gender = Gender.Unknown
