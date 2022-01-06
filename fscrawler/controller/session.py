@@ -116,10 +116,11 @@ class Session:
                 r = self.client.get(url)
             except requests.ReadTimeout:
                 timeout = True
-            result = self._process_response(r, timeout)
-            if result == CONTINUE:
-                continue
-            return result
+            if not timeout:
+                result = self._process_response(r, timeout)
+                if result == CONTINUE:
+                    continue
+                return result
 
     async def get_urla(self, url):
         """ asynchronously retrieve JSON structure from a FamilySearch URL """
@@ -127,6 +128,7 @@ class Session:
         async with requests.AsyncClient(base_url=BASE_URL,
                                         cookies={FSSESSIONID: self.fssessionid},
                                         timeout=self.timeout) as client:
+            retry_delay = 1
             while True:
                 try:
                     timeout = False
@@ -134,10 +136,15 @@ class Session:
                     r = await client.get(url)
                 except requests.ReadTimeout:
                     timeout = True
-                result = self._process_response(r, timeout)
-                if result == CONTINUE:
-                    continue
-                return result
+                if not timeout:
+                    result = self._process_response(r, timeout)
+                    if result == CONTINUE:
+                        continue
+                    return result
+                if retry_delay > 8:
+                    raise Exception("Exhausted retries")
+                time.sleep(retry_delay)
+                retry_delay *= 2
 
     def _process_response(self, r, timeout):
         if timeout:
