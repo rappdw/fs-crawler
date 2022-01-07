@@ -98,6 +98,7 @@ class FamilySearchAPI:
 
     @staticmethod
     def process_relationship_result(data, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
+        data = FamilySearchAPI.check_error(data)
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
                 rel_id = rel["id"]
@@ -108,6 +109,16 @@ class FamilySearchAPI:
                     FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id, resolved_relationships)
                 if parent2:
                     FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id, resolved_relationships)
+
+    @staticmethod
+    def check_error(data):
+        if data and "error" in data:
+            try:
+                # a number of "error" responses actually have data, if we can get data, do so...
+                data = data["error"].json()
+            except:
+                pass
+        return data
 
     async def get_persons_from_list(self, ids, graph, iteration):
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
@@ -121,6 +132,7 @@ class FamilySearchAPI:
 
     @staticmethod
     def process_persons_result(data, graph, iteration):
+        data = FamilySearchAPI.check_error(data)
         if data:
             for person in data["persons"]:
                 graph.add_individual(Individual(person, iteration))

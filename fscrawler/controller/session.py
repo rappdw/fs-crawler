@@ -136,7 +136,7 @@ class Session:
             return None
         if r.status_code in {404, 405, 410, 500}:
             logger.warning(f"WARNING: status: {r.status_code}, url: {r.url}")
-            return None
+            return {'error': r}
         if r.status_code == 401:
             self.login()
             return CONTINUE
@@ -144,9 +144,9 @@ class Session:
             r.raise_for_status()
         except requests.HTTPError:
             logger.warning(f"HTTPError: status: {r.status_code}, url: {r.url}")
-            return None
+            return {'error': r}
         try:
             return r.json()
         except Exception as e:
             logger.warning(f"WARNING: corrupted file from {r.url}, error: {e}")
-            return None
+            return {'error': r}
