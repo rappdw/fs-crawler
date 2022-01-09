@@ -20,6 +20,9 @@ class GraphWriter(GraphIO):
                 writer = csv.writer(file)
                 writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
 
+    def write_partial_iteration(self):
+        pass
+
     def write_iteration(self, span_frontier: bool):
         relationships = self.graph.get_relationships()
         individuals = self.graph.get_individuals()
