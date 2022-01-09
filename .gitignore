@@ -7,3 +7,4 @@ wheel
 build
 *.egg-info
 *.xlsx
+notes.md
