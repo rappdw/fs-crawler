@@ -1,6 +1,7 @@
 from abc import ABC
 from typing import Optional
 from fscrawler.model.graph import Graph
+from os.path import exists
 
 
 class GraphIO(ABC):
@@ -14,3 +15,11 @@ class GraphIO(ABC):
         self.frontier_vertices_filename = out_dir / f"{basename}.frontier.vertices.csv"
         self.frontier_edges_filename = out_dir / f"{basename}.frontier.edges.csv"
         self.graph = graph
+
+    def exists(self):
+        return exists(self.edges_filename) and \
+               exists(self.vertices_filename) and \
+               exists(self.residual_edges_filename) and \
+               exists(self.frontier_vertices_filename) and \
+               exists(self.frontier_edges_filename)
+

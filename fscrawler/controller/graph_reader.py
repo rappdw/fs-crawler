@@ -38,13 +38,13 @@ class GraphReader(GraphIO):
             for row in reader:
                 if row[0].startswith('#'):
                     continue
-                self.graph.add_next_iter((row[0], row[1]), RelationshipType(row[2]))
+                self.graph.add_next_iter(row[0], row[1], (RelationshipType(row[2]), row[3]))
         with self.residual_edges_filename.open("r") as file:
             reader = csv.reader(file)
             for row in reader:
                 if row[0].startswith('#'):
                     continue
-                self.graph.add_next_iter((row[0], row[1]), RelationshipType(row[2]))
+                self.graph.add_next_iter(row[0], row[1], (RelationshipType(row[2]), row[3]))
 
     def get_max_iteration(self):
         return self.max_iter

@@ -35,7 +35,8 @@ setup(name=package,
       ],
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
-            'httpx'
+            'httpx',
+            'tqdm'
       ],
       extras_require={
             'dev': [
@@ -51,7 +52,8 @@ setup(name=package,
       },
       entry_points={
             'console_scripts': [
-                  'crawl-fs = fscrawler.crawler:main'
+                  'crawl-fs = fscrawler.crawler:main',
+                  'validate-fs = fscrawler.validator:main'
             ],
       }
 )

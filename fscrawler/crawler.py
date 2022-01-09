@@ -1,4 +1,6 @@
 import asyncio
+import faulthandler
+import signal
 import logging
 import re
 import sys
@@ -6,14 +8,16 @@ import time
 import argparse
 import getpass
 
+from collections import defaultdict
 from pathlib import Path
+from typing import Dict, Tuple
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, RelationshipReWriter
 from fscrawler.model.graph import Graph
-
+from fscrawler.model import RelationshipType
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
-          save_living=False, individuals=None, restart=False):
+          save_living=False, individuals=None):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -28,16 +32,19 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     # add list of starting individuals to the family tree
     graph = Graph()
     iteration_start = 0
-    if restart:
+    # check to see if the files already exists and if so, consider this
+    # a restart
+    if GraphIO(out_dir, basename, graph).exists():
+        restart = True
         reader = GraphReader(out_dir, basename, graph)
         iteration_start = reader.get_max_iteration() + 1
         logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
     else:
+        restart = False
         if not individuals:
             individuals = [fs.get_default_starting_id()]
-        todo = individuals
-        for fsid in todo:
-            graph.add_to_frontier(fsid)
+        for id in individuals:
+            graph.add_to_frontier(id)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
@@ -51,6 +58,24 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     logger.info(f"Downloaded {graph.graph_stats()}, "
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
+
+    validator = GraphValidator(out_dir, basename)
+    relationships_to_resolve = validator.get_relationships_to_resolve()
+
+    resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
+    rel_relationship_count = len(relationships_to_resolve)
+    logger.info(f"Resolving {rel_relationship_count} relationships.")
+    if rel_relationship_count > 0:
+        fs.resolve_relationships(resolved_relationships, relationships_to_resolve, loop)
+        rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
+        rewriter.rewrite_relationships()
+        validator = GraphValidator(out_dir, basename)
+
+    if validator.get_invalid_rel_count() > 0:
+        validator.save_invalid_relationships()
+        logger.info(f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n{validator.get_valdiation_histogram()}")
+    else:
+        logger.info("Crawl complete.")
 
 
 def main():
@@ -70,8 +95,6 @@ def main():
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
-    parser.add_argument("-r", "--restart", action="store_true", default=False,
-                        help="Restart from saved state of last crawl")
     parser.add_argument("--save-living", action="store_true", default=False,
                         help="When writing out csf files, save living individuals")
     parser.add_argument("--show-password", action="store_true", default=False,
@@ -124,8 +147,9 @@ def main():
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
     crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
-          args.save_living, individuals, args.restart)
-
+          args.save_living, individuals)
 
 if __name__ == "__main__":
+    faulthandler.enable(all_threads=True)
+    faulthandler.register(signal.SIGUSR1, all_threads=True)
     main()
