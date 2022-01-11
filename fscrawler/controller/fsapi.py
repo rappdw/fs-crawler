@@ -201,7 +201,7 @@ class FamilySearchAPI:
             iteration_count += 1
             if iteration_count > partial_write_count:
                 iteration_count = 0
-                writer.write_partial_iteration()
+                writer.write_partial_iteration(not final_iteration)
             time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
         logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
 

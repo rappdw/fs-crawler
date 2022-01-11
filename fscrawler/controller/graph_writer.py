@@ -20,10 +20,11 @@ class GraphWriter(GraphIO):
                 writer = csv.writer(file)
                 writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
 
-    def write_partial_iteration(self):
+    def write_partial_iteration(self, span_frontier: bool):
+        #self.write_iteration(span_frontier, True)
         pass
 
-    def write_iteration(self, span_frontier: bool):
+    def write_iteration(self, span_frontier: bool, partial: bool = False):
         relationships = self.graph.get_relationships()
         individuals = self.graph.get_individuals()
         residual = dict()
@@ -44,22 +45,23 @@ class GraphWriter(GraphIO):
                     writer.writerow([person.fid, person.gender.value, f"{person.name.surname}, {person.name.given}",
                                      person.iteration, person.lifespan])
 
-        frontier = self.graph.get_frontier()
-        next_iter = self.graph.get_next_iter_relationships()
-        with self.frontier_vertices_filename.open("w") as file:
-            writer = csv.writer(file)
-            writer.writerow(["#external_id"])
-            for fid in frontier:
-                writer.writerow([fid])
-        with self.frontier_edges_filename.open("w") as file:
-            writer = csv.writer(file)
-            writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
-            for src, dest_dict in next_iter.items():
-                for dest, (rel_type, rel_id) in dest_dict.items():
-                    writer.writerow([src, dest, rel_type.value, rel_id])
-        if not span_frontier:
-            with self.residual_edges_filename.open("w") as file:
+        if not partial:
+            frontier = self.graph.get_frontier()
+            next_iter = self.graph.get_next_iter_relationships()
+            with self.frontier_vertices_filename.open("w") as file:
+                writer = csv.writer(file)
+                writer.writerow(["#external_id"])
+                for fid in frontier:
+                    writer.writerow([fid])
+            with self.frontier_edges_filename.open("w") as file:
                 writer = csv.writer(file)
                 writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
-                for (src, dest), (rel_type, rel_id) in residual.items():
-                    writer.writerow([src, dest, rel_type.value, rel_id])
+                for src, dest_dict in next_iter.items():
+                    for dest, (rel_type, rel_id) in dest_dict.items():
+                        writer.writerow([src, dest, rel_type.value, rel_id])
+            if not span_frontier:
+                with self.residual_edges_filename.open("w") as file:
+                    writer = csv.writer(file)
+                    writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
+                    for (src, dest), (rel_type, rel_id) in residual.items():
+                        writer.writerow([src, dest, rel_type.value, rel_id])

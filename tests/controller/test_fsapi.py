@@ -65,9 +65,9 @@ def test_partition_requests():
 def fs_api(httpx_mock):
     """Setup a mock fs_api and mock the login process"""
     httpx_mock.add_response(url=LOGIN_W_PARAMS, json={}, headers={'location': LOCATION})
-    httpx_mock.add_response(url=LOCATION, data='name="params" value="012345678901234567890123456789"',
+    httpx_mock.add_response(url=LOCATION, text='name="params" value="012345678901234567890123456789"',
                             headers={'Set-Cookie': f'{FSSESSIONID}=12345'})
-    httpx_mock.add_response(url=AUTHORIZATION, data='', headers={'location': LOCATION})
+    httpx_mock.add_response(url=AUTHORIZATION, text='', headers={'location': LOCATION})
     httpx_mock.add_response(url=BASE_URL + CURRENT_USER,
                             json={'users': [
                                 {'personId': 'P1', 'preferredLanguage': 'English', 'displayName': 'Test User'}
@@ -107,7 +107,7 @@ def step_relationship_json(request):
 
 def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_relationship_json):
     graph = Graph()
-    requiring_resolution = fs_api.process_persons_result(persons_json, graph, 0)
+    fs_api.process_persons_result(persons_json, graph, 0)
     individuals = graph.get_individuals()
     count = 0
     for individual in individuals:
@@ -115,23 +115,20 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
         count += 1
     assert count == 3
 
-    assert "MHFN-X8H" in requiring_resolution
-    assert "98F8-S5H" in requiring_resolution
-
     relationships = graph.get_relationships()
 
-    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.UNTYPED_PARENT
     fs_api.process_relationship_result(step_relationship_json, relationships)
-    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
-    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
     fs_api.process_relationship_result(bio_relationship_json, relationships)
-    assert relationships['KWZG-916][KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916][KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916][KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT

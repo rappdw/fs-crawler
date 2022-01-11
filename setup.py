@@ -44,7 +44,7 @@ setup(name=package,
             ],
             'test': [
                   'asynctest>=0.13',
-                  'pytest>=6.0',
+                  'pytest>=6.2',
                   'pytest-asyncio>=0.12',
                   'pytest-cov>=2.10',
                   'pytest-httpx>=0.8',
