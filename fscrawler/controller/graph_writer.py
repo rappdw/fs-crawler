@@ -9,6 +9,7 @@ class GraphWriter(GraphIO):
 
     def __init__(self, out_dir, basename: str, save_living: bool, graph: Graph, restart: bool):
         super().__init__(out_dir, basename, graph)
+        self.log_filename = out_dir / f"{basename}.log.csv"
         self.save_living = save_living
         self._initialize_output(restart)
 
@@ -20,6 +21,15 @@ class GraphWriter(GraphIO):
             with self.vertices_filename.open("w") as file:
                 writer = csv.writer(file)
                 writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
+
+    def log_iteration(self, iteration:int, duration:float):
+        exists = self.log_filename.exists()
+        with self.log_filename.open("a") as file:
+            writer = csv.writer(file)
+            if not exists:
+                writer.writerow(['#iteration', 'duration', 'vertices', 'edges', 'frontier'])
+            writer.writerow([iteration, duration, self.graph.individual_count, self.graph.relationship_count, len(self.graph.frontier)])
+
 
     def write_partial_iteration(self, span_frontier: bool):
         time.sleep(2)

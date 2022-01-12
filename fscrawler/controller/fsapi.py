@@ -191,6 +191,8 @@ class FamilySearchAPI:
         final_iteration = iteration == iteration_bound - 1
         graph.iterate()
 
+        start = time.time()
+
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
         partitioned_request = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
         iteration_count = 0
@@ -206,7 +208,9 @@ class FamilySearchAPI:
                 writer.write_partial_iteration(not final_iteration)
             else:
                 time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
-        logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
+        duration = time.time() - start
+        logger.info(f"\tFinished iteration: {iteration}. Duration: {duration:.2f} s. Graph stats: {graph.graph_stats()}")
+        writer.log_iteration(iteration, duration)
 
         graph.end_iteration()
         writer.write_iteration(not final_iteration)
