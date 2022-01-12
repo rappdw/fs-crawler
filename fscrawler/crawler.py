@@ -41,10 +41,11 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
         logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
     else:
         restart = False
-        if not individuals:
-            individuals = [fs.get_default_starting_id()]
-        for id in individuals:
-            graph.add_to_frontier(id)
+
+    if not individuals:
+        individuals = [fs.get_default_starting_id()]
+    for id in individuals:
+        graph.add_to_frontier(id)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
