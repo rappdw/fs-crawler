@@ -36,7 +36,8 @@ setup(name=package,
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
             'httpx',
-            'tqdm'
+            'tqdm',
+            'iteration_utilities'
       ],
       extras_require={
             'dev': [

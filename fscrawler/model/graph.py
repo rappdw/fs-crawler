@@ -104,7 +104,7 @@ class Graph:
     def get_relationships(self):
         return self.relationships
 
-    def get_visited_individuals(self):
+    def get_visited_individuals(self) -> Set[str]:
         return self.individuals_visited | self.living_individuals_visited
 
     def get_next_iter_relationships(self):

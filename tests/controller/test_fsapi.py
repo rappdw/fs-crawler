@@ -1,7 +1,7 @@
 import pytest
 import json
 import pathlib
-from fscrawler.controller.fsapi import split_seq, partition_requests, FamilySearchAPI
+from fscrawler.controller.fsapi import partition_requests, FamilySearchAPI
 from fscrawler.controller.session import FAMILYSEARCH_LOGIN, AUTHORIZATION, BASE_URL, CURRENT_USER, FSSESSIONID
 from fscrawler.model.graph import Graph
 from fscrawler.model.relationship_types import RelationshipType
@@ -10,56 +10,33 @@ LOGIN_W_PARAMS = FAMILYSEARCH_LOGIN + '?ldsauth=false'
 LOCATION = 'https://location_url'
 
 
-def test_split_seq():
-    sequence = [0, 1, 2, 3, 4, 5]
-    expected = {
-        0: [0, 1],
-        1: [2, 3],
-        2: [4, 5],
-    }
-    for idx, segment in enumerate(split_seq(sequence, 2)):
-        assert idx in expected
-        assert expected[idx] == segment
-
-    sequence = [0, 1, 2, 3, 4]
-    expected = {
-        0: [0, 1],
-        1: [2, 3],
-        2: [4],
-    }
-    for idx, segment in enumerate(split_seq(sequence, 2)):
-        assert idx in expected
-        assert expected[idx] == segment
-
-
 def test_partition_requests():
-    ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+    ids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22}
     expected = {
-        0: [[0, 1, 2], [3, 4, 5]],
-        1: [[6, 7, 8], [9, 10, 11]],
-        2: [[12, 13, 14], [15, 16, 17]],
-        3: [[18, 19, 20], [21, 22]],
+        0: ((0, 1, 2), (3, 4, 5)),
+        1: ((6, 7, 8), (9, 10, 11)),
+        2: ((12, 13, 14), (15, 16, 17)),
+        3: ((18, 19, 20), (21, 22)),
     }
 
     partitioning = partition_requests(ids, None, 3, 2)
     idx = 0
-    for partition in partitioning:
+    for partition in partitioning.iterator:
         assert partition == expected[idx]
         idx += 1
-    assert idx == 4
+    assert partitioning.number_of_partitions == idx
 
     expected = {
-        0: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        1: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
-        2: [20, 21, 22],
+        0: (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+        1: (10, 11, 12, 13, 14, 15, 16, 17, 18, 19),
+        2: (20, 21, 22),
     }
     partitioning = partition_requests(ids, None, 1, 10)
     idx = 0
-    for partition in partitioning:
+    for partition in partitioning.iterator:
         assert partition == expected[idx]
         idx += 1
-    assert idx == 3
-
+    assert partitioning.number_of_partitions == idx
 
 @pytest.fixture
 def fs_api(httpx_mock):
@@ -123,12 +100,8 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
     fs_api.process_relationship_result(step_relationship_json, relationships)
     assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
     assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT
     fs_api.process_relationship_result(bio_relationship_json, relationships)
     assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
     assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] != RelationshipType.UNSPECIFIED_PARENT
+    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT

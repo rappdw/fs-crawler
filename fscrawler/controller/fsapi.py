@@ -1,12 +1,13 @@
 import asyncio
-import itertools
 import logging
 import sys
 import time
 import traceback
 
+from collections import namedtuple
+from iteration_utilities import grouper
 from math import ceil
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Set
 from urllib.parse import urlparse
 from tqdm import tqdm
 from .session import Session
@@ -37,32 +38,37 @@ PARTIAL_WRITE_THRESHOLD = 20
 logger = logging.getLogger(__name__)
 interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://gedcomx.org/ParentChild"}
 
+PartitionedRequest = namedtuple("PartionedRequest", "number_of_partitions iterator")
 
-def split_seq(iterable, size):
-    it = iter(iterable)
-    item = list(itertools.islice(it, size))
-    while item:
-        yield item
-        item = list(itertools.islice(it, size))
-
-
-def partition_requests(ids, exclusion=None, max_ids_per_request=MAX_PERSONS,
-                       max_concurrent_requests=MAX_CONCURRENT_PERSON_REQUESTS):
+def partition_requests(ids: Set, exclusion: Set = None, max_ids_per_request:int = MAX_PERSONS,
+                       max_concurrent_requests:int = MAX_CONCURRENT_PERSON_REQUESTS) -> PartitionedRequest:
     """
     Based on the maximum number of persons in a request, and the maximum number of
     concurrent requests allowed, split a 1d array into a 2d array of arrays where
     each cell is a set of ids to be requested in one call and each row is a group
     of requests that will run concurrently
+
+    Parameters:
+        ids (Set): the set of ids to partion into requests
+        exclusion (Set): any ids that should be excluded from the partition
+        max_ids_per_request (int): the maximum number of ids in an individual request
+        max_concurrent_requests (int): the maximum number of concurrent requests
+
+    Returns:
+        partitioned_request (PartitionedRequest): A tuple that holds a count of the number of partitions and an
+        iterator that iterates over the partitioning
     """
-    if exclusion is None:
-        exclusion = {}
-    ids = [req_id for req_id in ids if req_id is not None and req_id not in exclusion]
+    if exclusion is not None:
+        ids = ids - exclusion
+    ids = ids - {None}
     if max_ids_per_request > 1:
-        final = [ids[i * max_ids_per_request:(i + 1) * max_ids_per_request]
-                 for i in range((len(ids) + max_ids_per_request - 1) // max_ids_per_request)]
+        grouped_ids = grouper(ids, max_ids_per_request)
     else:
-        final = ids
-    return split_seq(final, max_concurrent_requests)
+        grouped_ids = ids
+    return PartitionedRequest(
+        ceil(len(ids) / max_concurrent_requests / max_ids_per_request),
+        grouper(grouped_ids, max_concurrent_requests)
+    )
 
 
 class FamilySearchAPI:
@@ -92,7 +98,7 @@ class FamilySearchAPI:
                 rel_type = RelationshipType(new_type)
         return rel_type
 
-    async def get_relationships_from_id(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]], rel_id):
+    async def get_relationships_from_id(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]], rel_id: str):
         self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), resolved_relationships)
 
     @staticmethod
@@ -129,7 +135,7 @@ class FamilySearchAPI:
                 pass
         return data
 
-    async def get_persons_from_list(self, ids, graph, iteration):
+    async def get_persons_from_ids(self, ids, graph, iteration):
         self.process_persons_result(await self.session.get_urla(GET_PERSONS + ",".join(ids)), graph, iteration)
 
     @staticmethod
@@ -159,16 +165,18 @@ class FamilySearchAPI:
                     FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
     def resolve_relationships(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]],
-                              relationships, loop, delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
-        """ resolve relationship types in the graph
-            :param relationships: iterable relationship ids to resolve
-            :param resolved_relationships: dictionary to record resolutions
-            :param loop: asyncio event loop
-            :param delay: delay to insert between successive concurrent get_persons requests
+                              relationships:Set, loop, delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
         """
-        partitioned_requests = partition_requests(relationships, None, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
-        partition_count = ceil(len(relationships) / MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
-        for requests in tqdm(partitioned_requests, total=partition_count):
+        Resolve relationship types in the graph
+
+        Parameters:
+            relationships: set of relationship ids to resolve
+            resolved_relationships: dictionary to record resolutions
+            loop: asyncio event loop
+            delay: delay to insert between successive concurrent get_persons requests
+        """
+        partitioned_request = partition_requests(relationships, None, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
+        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions):
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
@@ -185,15 +193,14 @@ class FamilySearchAPI:
         graph.iterate()
 
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
-        partitioned_requests = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
-        partition_count = ceil(len(graph.processing) / MAX_CONCURRENT_PERSON_REQUESTS / MAX_PERSONS)
-        if partition_count > PARTIAL_WRITE_THRESHOLD:
+        partitioned_request = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
+        if partitioned_request.number_of_partitions > PARTIAL_WRITE_THRESHOLD:
             partial_write_count = PARTIAL_WRITE_THRESHOLD / 2
         else:
             partial_write_count = sys.maxsize
         iteration_count = 0
-        for requests in tqdm(partitioned_requests, total=partition_count):
-            coroutines = [self.get_persons_from_list(request, graph, iteration) for request in requests]
+        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions):
+            coroutines = [self.get_persons_from_ids(request, graph, iteration) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
                 if result: # no return from get_relationships_from_id, so we have an exception
