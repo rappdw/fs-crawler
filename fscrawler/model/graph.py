@@ -74,7 +74,6 @@ class Graph:
         self.living_individuals_visited: Set[str] = set()
         self.relationships_visited: Set[Tuple[str, str]] = set()
         self.individual_count: int = 0
-        self.relationship_count: int = 0
         self.processing: Set[str] = set()
 
     def get_individual(self, fs_id: str) -> Optional[Individual]:
@@ -118,11 +117,9 @@ class Graph:
             self.individuals_visited.add(fs_id)
 
     def add_visited_relationship(self, rel_key: Tuple[str, str]):
-        self.relationship_count += 1
         self.relationships_visited.add(rel_key)
 
     def add_next_iter(self, src: str, dest: str, rel_info: Tuple[RelationshipType, str]):
-        self.relationship_count += 1
         self.next_iter_relationships[src][dest] = rel_info
 
     def add_to_frontier(self, fs_id: str):
@@ -144,7 +141,6 @@ class Graph:
     def add_parent_child_relationship(self, child, parent, rel_id,
                                       rel_type: RelationshipType = RelationshipType.UNTYPED_PARENT):
         if (child, parent) not in self.relationships_visited:
-            self.relationship_count += 1
             self.relationships[child][parent] = (rel_type, rel_id)
 
     def iterate(self):
@@ -191,8 +187,14 @@ class Graph:
         self.relationships = temp
 
     def graph_stats(self) -> str:
-        return f"{self.individual_count:,} vertices, {self.relationship_count:,} edges, " \
+        return f"{self.individual_count:,} vertices, {self.get_relationship_count():,} edges, " \
                f"{len(self.frontier):,} frontier"
 
     def get_ids_to_process(self) -> Set[str]:
         return self.processing
+
+    def get_relationship_count(self):
+        rel_count = 0
+        for dest_dict in self.relationships:
+            rel_count += len(dest_dict)
+        return rel_count

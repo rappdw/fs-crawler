@@ -28,7 +28,7 @@ class GraphWriter(GraphIO):
             writer = csv.writer(file)
             if not exists:
                 writer.writerow(['#iteration', 'duration', 'vertices', 'edges', 'frontier'])
-            writer.writerow([iteration, duration, self.graph.individual_count, self.graph.relationship_count, len(self.graph.frontier)])
+            writer.writerow([iteration, duration, self.graph.individual_count, self.graph.get_relationship_count(), len(self.graph.frontier)])
 
 
     def write_partial_iteration(self, span_frontier: bool):

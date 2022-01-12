@@ -4,6 +4,13 @@ from fscrawler.model.graph import Graph
 from fscrawler.model.relationship_types import RelationshipType
 from .graph_io import GraphIO
 
+# The type of relationships we will continue to store in the edges file, all other types will be in
+# the aux.edges.csv file
+REWRITE_REL_TYPES = {
+    RelationshipType.UNTYPED_PARENT,
+    RelationshipType.UNSPECIFIED_PARENT,
+    RelationshipType.BIOLOGICAL_PARENT
+}
 
 class RelationshipReWriter(GraphIO):
 
@@ -12,6 +19,7 @@ class RelationshipReWriter(GraphIO):
         self.relationships = relationships
         # copy original edges file to "orig.edges.csv"
         self.orig_edges_filename = out_dir / f"{basename}.orig.edges.csv"
+        self.aux_edges_filename = out_dir / f"{basename}.aux.edges.csv"
         self._initialize_output()
 
     def _initialize_output(self):
@@ -19,11 +27,18 @@ class RelationshipReWriter(GraphIO):
         with self.edges_filename.open("w") as file:
             writer = csv.writer(file)
             writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
+        if not self.aux_edges_filename.exists():
+            with self.aux_edges_filename.open("w") as file:
+                writer = csv.writer(file)
+                writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
 
     def rewrite_relationships(self):
-        with self.orig_edges_filename.open("r") as in_file, self.edges_filename.open("a") as out_file:
+        with self.orig_edges_filename.open("r") as in_file, \
+                self.edges_filename.open("a") as out_file, \
+                self.aux_edges_filename.open("a") as aux_file:
             reader = csv.reader(in_file)
             writer = csv.writer(out_file)
+            aux_writer = csv.writer(aux_file)
             for row in reader:
                 if row[0].startswith('#'):
                     continue
@@ -33,5 +48,8 @@ class RelationshipReWriter(GraphIO):
                 rel_id = row[3]
                 if parent_id in self.relationships[child_id]:
                     (rel_type, rel_id) = self.relationships[child_id][parent_id]
-                writer.writerow([child_id, parent_id, rel_type.value, rel_id])
+                if rel_type in REWRITE_REL_TYPES:
+                    writer.writerow([child_id, parent_id, rel_type.value, rel_id])
+                else:
+                    aux_writer.writerow([child_id, parent_id, rel_type.value, rel_id])
 
