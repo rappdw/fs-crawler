@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 import time
 import traceback
 
@@ -176,7 +175,7 @@ class FamilySearchAPI:
             delay: delay to insert between successive concurrent get_persons requests
         """
         partitioned_request = partition_requests(relationships, None, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
-        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions):
+        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions, disable=partitioned_request.number_of_partitions==1):
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
@@ -194,22 +193,19 @@ class FamilySearchAPI:
 
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
         partitioned_request = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
-        if partitioned_request.number_of_partitions > PARTIAL_WRITE_THRESHOLD:
-            partial_write_count = PARTIAL_WRITE_THRESHOLD / 2
-        else:
-            partial_write_count = sys.maxsize
         iteration_count = 0
-        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions):
+        for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions, disable=partitioned_request.number_of_partitions==1):
+            iteration_count += 1
             coroutines = [self.get_persons_from_ids(request, graph, iteration) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
                 if result: # no return from get_relationships_from_id, so we have an exception
                     raise result
-            iteration_count += 1
-            if iteration_count > partial_write_count:
+            if iteration_count > PARTIAL_WRITE_THRESHOLD:
                 iteration_count = 0
                 writer.write_partial_iteration(not final_iteration)
-            time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
+            else:
+                time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
         logger.info(f"\tFinished iteration: {iteration}. Graph stats: {graph.graph_stats()}")
 
         graph.end_iteration()

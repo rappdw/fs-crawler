@@ -1,4 +1,5 @@
 import csv
+import time
 from fscrawler.model.graph import Graph, EdgeConditions
 
 from .graph_io import GraphIO
@@ -21,6 +22,7 @@ class GraphWriter(GraphIO):
                 writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
 
     def write_partial_iteration(self, span_frontier: bool):
+        time.sleep(2)
         #self.write_iteration(span_frontier, True)
         pass
 
