@@ -38,7 +38,8 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
         restart = True
         reader = GraphReader(out_dir, basename, graph)
         iteration_start = reader.get_max_iteration() + 1
-        logger.info(f"Loaded graph for restart: {graph.graph_stats()}")
+        iteration_bound = iteration_start + iteration_bound
+        logger.info(f"Loaded graph for restart: {graph.graph_stats()}. Running iterations {iteration_start} through {iteration_bound}.")
     else:
         restart = False
 
