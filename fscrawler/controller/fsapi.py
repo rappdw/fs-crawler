@@ -39,8 +39,9 @@ interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://
 
 PartitionedRequest = namedtuple("PartionedRequest", "number_of_partitions iterator")
 
-def partition_requests(ids: Set, exclusion: Set = None, max_ids_per_request:int = MAX_PERSONS,
-                       max_concurrent_requests:int = MAX_CONCURRENT_PERSON_REQUESTS) -> PartitionedRequest:
+
+def partition_requests(ids: Set, max_ids_per_request: int = MAX_PERSONS,
+                       max_concurrent_requests: int = MAX_CONCURRENT_PERSON_REQUESTS) -> PartitionedRequest:
     """
     Based on the maximum number of persons in a request, and the maximum number of
     concurrent requests allowed, split a 1d array into a 2d array of arrays where
@@ -49,7 +50,6 @@ def partition_requests(ids: Set, exclusion: Set = None, max_ids_per_request:int 
 
     Parameters:
         ids (Set): the set of ids to partion into requests
-        exclusion (Set): any ids that should be excluded from the partition
         max_ids_per_request (int): the maximum number of ids in an individual request
         max_concurrent_requests (int): the maximum number of concurrent requests
 
@@ -57,9 +57,6 @@ def partition_requests(ids: Set, exclusion: Set = None, max_ids_per_request:int 
         partitioned_request (PartitionedRequest): A tuple that holds a count of the number of partitions and an
         iterator that iterates over the partitioning
     """
-    if exclusion is not None:
-        ids = ids - exclusion
-    ids = ids - {None}
     if max_ids_per_request > 1:
         grouped_ids = grouper(ids, max_ids_per_request)
     else:
@@ -141,6 +138,7 @@ class FamilySearchAPI:
     def _process_parent_child(key, data, graph, child, rel_id):
         if key in data:
             parent = data[key]["resourceId"]
+            graph.add_to_frontier(child)
             graph.add_to_frontier(parent)
             graph.add_parent_child_relationship(child, parent, rel_id)
 
@@ -174,7 +172,7 @@ class FamilySearchAPI:
             loop: asyncio event loop
             delay: delay to insert between successive concurrent get_persons requests
         """
-        partitioned_request = partition_requests(relationships, None, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
+        partitioned_request = partition_requests(relationships, 1, MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions, disable=partitioned_request.number_of_partitions==1):
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
@@ -189,12 +187,13 @@ class FamilySearchAPI:
 
     def iterate(self, iteration: int, iteration_bound: int, graph: Graph, loop, writer: GraphWriter):
         final_iteration = iteration == iteration_bound - 1
-        graph.iterate()
+        graph.start_iteration()
+        writer.start_iteration()
 
         start = time.time()
 
         logger.info(f"Starting iteration: {iteration}... ({len(graph.processing):,} individuals to process)")
-        partitioned_request = partition_requests(graph.get_ids_to_process(), graph.get_visited_individuals())
+        partitioned_request = partition_requests(graph.get_ids_to_process())
         iteration_count = 0
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions, disable=partitioned_request.number_of_partitions==1):
             iteration_count += 1
@@ -205,12 +204,9 @@ class FamilySearchAPI:
                     raise result
             if iteration_count > PARTIAL_WRITE_THRESHOLD:
                 iteration_count = 0
-                writer.write_partial_iteration(not final_iteration)
+                writer.checkpoint_iteration(not final_iteration)
             else:
                 time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
         duration = time.time() - start
         logger.info(f"\tFinished iteration: {iteration}. Duration: {duration:.2f} s. Graph stats: {graph.graph_stats()}")
-        writer.log_iteration(iteration, duration)
-
-        graph.end_iteration()
-        writer.write_iteration(not final_iteration)
+        writer.end_iteration(iteration, duration, final_iteration)

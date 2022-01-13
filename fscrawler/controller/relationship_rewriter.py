@@ -32,7 +32,8 @@ class RelationshipReWriter(GraphIO):
                 writer = csv.writer(file)
                 writer.writerow(['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id'])
 
-    def rewrite_relationships(self):
+    def rewrite_relationships(self) -> int:
+        rels_moved_to_aux = 0
         with self.orig_edges_filename.open("r") as in_file, \
                 self.edges_filename.open("a") as out_file, \
                 self.aux_edges_filename.open("a") as aux_file:
@@ -52,4 +53,6 @@ class RelationshipReWriter(GraphIO):
                     writer.writerow([child_id, parent_id, rel_type.value, rel_id])
                 else:
                     aux_writer.writerow([child_id, parent_id, rel_type.value, rel_id])
+                    rels_moved_to_aux += 1
+        return rels_moved_to_aux
 

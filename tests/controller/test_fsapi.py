@@ -19,7 +19,7 @@ def test_partition_requests():
         3: ((18, 19, 20), (21, 22)),
     }
 
-    partitioning = partition_requests(ids, None, 3, 2)
+    partitioning = partition_requests(ids, 3, 2)
     idx = 0
     for partition in partitioning.iterator:
         assert partition == expected[idx]
@@ -31,7 +31,7 @@ def test_partition_requests():
         1: (10, 11, 12, 13, 14, 15, 16, 17, 18, 19),
         2: (20, 21, 22),
     }
-    partitioning = partition_requests(ids, None, 1, 10)
+    partitioning = partition_requests(ids, 1, 10)
     idx = 0
     for partition in partitioning.iterator:
         assert partition == expected[idx]

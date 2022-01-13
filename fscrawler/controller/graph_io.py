@@ -11,7 +11,7 @@ class GraphIO(ABC):
         self.basename = basename
         self.edges_filename = out_dir / f"{basename}.edges.csv"
         self.vertices_filename = out_dir / f"{basename}.vertices.csv"
-        self.residual_edges_filename = out_dir / f"{basename}.residual.edges.csv"
+        self.spanning_edges_filename = out_dir / f"{basename}.spanning.edges.csv"
         self.frontier_vertices_filename = out_dir / f"{basename}.frontier.vertices.csv"
         self.frontier_edges_filename = out_dir / f"{basename}.frontier.edges.csv"
         self.graph = graph
@@ -19,7 +19,7 @@ class GraphIO(ABC):
     def exists(self):
         return exists(self.edges_filename) and \
                exists(self.vertices_filename) and \
-               exists(self.residual_edges_filename) and \
+               exists(self.spanning_edges_filename) and \
                exists(self.frontier_vertices_filename) and \
                exists(self.frontier_edges_filename)
 

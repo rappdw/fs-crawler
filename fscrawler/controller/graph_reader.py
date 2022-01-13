@@ -1,7 +1,6 @@
 import csv
 from .graph_io import GraphIO
 from fscrawler.model.graph import Graph
-from fscrawler.model.relationship_types import RelationshipType
 
 class GraphReader(GraphIO):
 
@@ -20,31 +19,26 @@ class GraphReader(GraphIO):
                 living = row[4].find('Living') != -1
                 self.graph.add_visited_individual(row[0], living)
                 self.max_iter = max(self.max_iter, int(row[3]))
-        # load the visited relationships
-        with self.edges_filename.open("r") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if row[0].startswith('#'):
-                    continue
-                self.graph.add_visited_relationship((row[0], row[1]))
         with self.frontier_vertices_filename.open("r") as file:
             reader = csv.reader(file)
             for row in reader:
                 if row[0].startswith('#'):
                     continue
                 self.graph.add_to_frontier(row[0])
+        # load the relationships
+        with self.edges_filename.open("r") as file:
+            self.load_relationships(file)
         with self.frontier_edges_filename.open("r") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if row[0].startswith('#'):
-                    continue
-                self.graph.add_next_iter(row[0], row[1], (RelationshipType(row[2]), row[3]))
-        with self.residual_edges_filename.open("r") as file:
-            reader = csv.reader(file)
-            for row in reader:
-                if row[0].startswith('#'):
-                    continue
-                self.graph.add_next_iter(row[0], row[1], (RelationshipType(row[2]), row[3]))
+            self.load_relationships(file)
+        with self.spanning_edges_filename.open("r") as file:
+            self.load_relationships(file)
+
+    def load_relationships(self, file):
+        reader = csv.reader(file)
+        for row in reader:
+            if row[0].startswith('#'):
+                continue
+            self.graph.add_parent_child_relationship(row[0], row[1], row[3])
 
     def get_max_iteration(self):
         return self.max_iter

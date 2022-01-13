@@ -70,7 +70,8 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     if rel_relationship_count > 0:
         fs.resolve_relationships(resolved_relationships, relationships_to_resolve, loop)
         rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
-        rewriter.rewrite_relationships()
+        rels_moved_to_aux = rewriter.rewrite_relationships()
+        logger.info(f"Moved {rels_moved_to_aux} relationships to 'auxiliary'.")
         validator = GraphValidator(out_dir, basename)
 
     if validator.get_invalid_rel_count() > 0:
