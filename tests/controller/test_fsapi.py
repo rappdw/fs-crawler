@@ -1,6 +1,8 @@
 import pytest
 import json
 import pathlib
+from collections import defaultdict
+from typing import Dict, Tuple
 from fscrawler.controller.fsapi import partition_requests, FamilySearchAPI
 from fscrawler.controller.session import FAMILYSEARCH_LOGIN, AUTHORIZATION, BASE_URL, CURRENT_USER, FSSESSIONID
 from fscrawler.model.graph import Graph
@@ -93,15 +95,15 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
     assert count == 3
 
     relationships = graph.get_relationships()
+    resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
 
-    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.UNTYPED_PARENT
-    fs_api.process_relationship_result(step_relationship_json, relationships)
-    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
-    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.UNTYPED_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT
-    fs_api.process_relationship_result(bio_relationship_json, relationships)
-    assert relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
-    assert relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT
+    assert relationships[('KWZG-916', 'KWZQ-QZV')] == 'MHFN-X8H'
+    assert relationships[('KWZG-916', 'KWZQ-QZG')] == 'MHFN-X8H'
+    assert relationships[('KWZG-916', 'KJDT-2VN')] == '98F8-S5H'
+    fs_api.process_relationship_result(step_relationship_json, resolved_relationships)
+    assert resolved_relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
+    assert resolved_relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT
+    fs_api.process_relationship_result(bio_relationship_json, resolved_relationships)
+    assert resolved_relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert resolved_relationships['KWZG-916']['KWZQ-QZG'][0] == RelationshipType.BIOLOGICAL_PARENT
+    assert resolved_relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT
