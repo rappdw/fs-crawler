@@ -121,7 +121,7 @@ class GraphValidator(GraphIO):
 
         # calculate the invalid relationship counts
         for child_id, v in rel_validation_counts.items():
-            if v[0] > 1 or v[1] > 1 or v[2] > 1:
+            if v[0] + v[1] + v[2] > 2:
                 self.invalid_src.add(child_id)
 
                 if v[Gender.Male.value] > 1:
@@ -142,6 +142,8 @@ class GraphValidator(GraphIO):
                 elif v[Gender.Female.value] > 1:
                     self.invalid_mother_count += 1
                 elif v[Gender.Unknown.value] > 1:
+                    self.invalid_unknown_count += 1
+                else:
                     self.invalid_unknown_count += 1
 
             if v[0] + v[1] + v[2] == 0:
