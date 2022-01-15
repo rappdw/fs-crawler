@@ -12,9 +12,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Tuple
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, RelationshipReWriter
+from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, \
+    RelationshipReWriter
 from fscrawler.model.graph import Graph
 from fscrawler.model import RelationshipType
+
 
 def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
           save_living=False, individuals=None):
@@ -39,14 +41,15 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
         reader = GraphReader(out_dir, basename, graph)
         iteration_start = reader.get_max_iteration() + 1
         iteration_bound = iteration_start + iteration_bound
-        logger.info(f"Loaded graph for restart: {graph.graph_stats()}. Running iterations {iteration_start} through {iteration_bound}.")
+        logger.info(f"Loaded graph for restart: {graph.graph_stats()}. Running iterations {iteration_start} through "
+                    f"{iteration_bound}.")
     else:
         restart = False
 
     if not individuals:
         individuals = [fs.get_default_starting_id()]
-    for id in individuals:
-        graph.add_to_frontier(id)
+    for fs_id in individuals:
+        graph.add_to_frontier(fs_id)
 
     # setup asyncio
     loop = asyncio.new_event_loop()
@@ -74,11 +77,12 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
         logger.info(f"Moved {rels_moved_to_aux} relationships to 'auxiliary'.")
         validator = GraphValidator(out_dir, basename)
 
+    validator.save_valid_graph()
     if validator.get_invalid_rel_count() > 0:
-        validator.save_invalid_relationships()
-        logger.info(f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n{validator.get_valdiation_histogram()}")
-    else:
-        logger.info("Crawl complete.")
+        logger.info(
+            f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n"
+            f"{validator.get_validation_histogram()}")
+    logger.info("Crawl complete.")
 
 
 def main():
@@ -151,6 +155,7 @@ def main():
 
     crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
           args.save_living, individuals)
+
 
 if __name__ == "__main__":
     faulthandler.enable(all_threads=True)

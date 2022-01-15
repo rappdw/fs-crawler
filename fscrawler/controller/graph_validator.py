@@ -4,6 +4,7 @@ from typing import DefaultDict, List, Dict, Tuple, Set
 from .graph_io import GraphIO
 from fscrawler.model.individual import Gender
 from fscrawler.model.relationship_types import RelationshipType
+from .graph_writer import CANONICAL_VERTEX_HEADER
 
 # Relationship types that require further resolution prior to final validation
 RELATIONSHIPS_RESOLUTIONS = [
@@ -39,6 +40,8 @@ class GraphValidator(GraphIO):
     def __init__(self, out_dir, basename: str):
         super().__init__(out_dir, basename, None)
         self.invalid_relationships_filename = out_dir / f"{basename}.invalid.edges.csv"
+        self.canonical_vertices_filename = out_dir / f"{basename}.canonical.vertices.csv"
+        self.canonical_edges_filename = out_dir / f"{basename}.canonical.edges.csv"
         self.invalid_src = set()
         self.resolution_src = set()
         self.child_to_rel: Dict[str, Set[str]] = defaultdict(lambda: set())
@@ -175,7 +178,7 @@ class GraphValidator(GraphIO):
         else:
             return birth_year
 
-    def get_valdiation_histogram(self):
+    def get_validation_histogram(self):
         # returns the number of invalid relationships in each iteration
         histo: DefaultDict[int, int] = defaultdict(int)
         for child_id in self.invalid_src:
@@ -186,7 +189,32 @@ class GraphValidator(GraphIO):
     def get_invalid_rel_count(self):
         return len(self.invalid_src)
 
-    def save_invalid_relationships(self):
+    def save_valid_graph(self):
+        id_to_number = dict()
+        vertex_number = 1
+        with self.vertices_filename.open("r") as in_file, self.canonical_vertices_filename.open("w") as out_file:
+            reader = csv.reader(in_file)
+            writer = csv.writer(out_file)
+            writer.writerow(CANONICAL_VERTEX_HEADER)
+            for row in reader:
+                if row[0].startswith('#'):
+                    continue
+                id_to_number[row[0]] = vertex_number
+                row.insert(0, str(vertex_number))
+                writer.writerow(row)
+                vertex_number += 1
+
+        with self.edges_filename.open("r") as in_file, self.canonical_edges_filename.open("w") as out_file:
+            reader = csv.reader(in_file)
+            writer = csv.writer(out_file)
+            for row in reader:
+                if row[0].startswith('#'):
+                    continue
+                src_id = row[0]
+                dest_id = row[1]
+                if src_id not in self.invalid_src:
+                    writer.writerow([id_to_number[src_id], id_to_number[dest_id]])
+
         with self.invalid_relationships_filename.open("w") as file:
             writer = csv.writer(file)
             writer.writerow(['#source_vertex', 'relationship_id'])

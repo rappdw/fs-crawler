@@ -4,7 +4,7 @@ from pathlib import Path
 from fscrawler.controller import GraphValidator
 
 
-def validate(in_dir, basename):
+def validate(in_dir, basename, save_valid_graph: bool):
     reader = GraphValidator(in_dir, basename)
     print(reader.get_validation_stats())
     if len(reader.invalid_src) < 100:
@@ -12,7 +12,9 @@ def validate(in_dir, basename):
         for id in reader.invalid_src:
             print(id)
     print("\nInvalid relationships by iteration:")
-    print(reader.get_valdiation_histogram())
+    print(reader.get_validation_histogram())
+    if save_valid_graph:
+        reader.save_valid_graph()
 
 
 def main():
@@ -25,6 +27,8 @@ def main():
                         help="basename for all output files", required=True)
     parser.add_argument("-i", "--indir", type=str,
                         help="output directory", required=True)
+    parser.add_argument("-s", "--save", action="store_true", default=False,
+                        help="save validated graph")
 
     # extract arguments from the command line
     try:
@@ -34,12 +38,11 @@ def main():
         print(f"\n\n*****\n{e}\n*****\n\n")
         parser.print_help()
         sys.exit(2)
-    individuals = None
 
     in_dir = Path(args.indir)
     basename = args.basename
 
-    validate(in_dir, basename)
+    validate(in_dir, basename, args.save)
 
 
 if __name__ == "__main__":

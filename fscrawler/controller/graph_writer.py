@@ -1,11 +1,12 @@
 import csv
-import time
 from fscrawler.model.graph import Graph
 
 from .graph_io import GraphIO
 from .. import RelationshipType
 
 RELATIONSHIP_HEADER = ['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id']
+VERTEX_HEADER = ["#external_id", "color", "name", "iteration", "lifespan"]
+CANONICAL_VERTEX_HEADER = ["#vertex_number", "external_id", "color", "name", "iteration", "lifespan"]
 
 
 class GraphWriter(GraphIO):
@@ -28,7 +29,7 @@ class GraphWriter(GraphIO):
 
             with self.vertices_filename.open("w") as file:
                 writer = csv.writer(file)
-                writer.writerow(["#external_id", "color", "name", "iteration", "lifespan"])
+                writer.writerow(VERTEX_HEADER)
 
     def log_iteration(self, iteration: int, duration: float):
         exists = self.log_filename.exists()
