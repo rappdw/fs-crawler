@@ -6,7 +6,7 @@ from .. import RelationshipType
 
 RELATIONSHIP_HEADER = ['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id']
 VERTEX_HEADER = ["#external_id", "color", "name", "iteration", "lifespan"]
-CANONICAL_VERTEX_HEADER = ["#vertex_number", "external_id", "color", "name", "iteration", "lifespan"]
+CANONICAL_VERTEX_HEADER = ["vertex_number", "external_id", "color", "name", "iteration", "lifespan"]
 
 
 class GraphWriter(GraphIO):
