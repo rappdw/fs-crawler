@@ -40,8 +40,8 @@ class GraphValidator(GraphIO):
     def __init__(self, out_dir, basename: str):
         super().__init__(out_dir, basename, None)
         self.invalid_relationships_filename = out_dir / f"{basename}.invalid.edges.csv"
-        self.canonical_vertices_filename = out_dir / f"{basename}.canonical.vertices.csv"
-        self.canonical_edges_filename = out_dir / f"{basename}.canonical.edges.csv"
+        self.validated_vertices_filename = out_dir / f"{basename}.validated.vertices.csv"
+        self.validated_edges_filename = out_dir / f"{basename}.validated.edges.csv"
         self.invalid_src = set()
         self.resolution_src = set()
         self.child_to_rel: Dict[str, Set[str]] = defaultdict(lambda: set())
@@ -192,7 +192,7 @@ class GraphValidator(GraphIO):
     def save_valid_graph(self):
         id_to_number = dict()
         vertex_number = 1
-        with self.vertices_filename.open("r") as in_file, self.canonical_vertices_filename.open("w") as out_file:
+        with self.vertices_filename.open("r") as in_file, self.validated_vertices_filename.open("w") as out_file:
             reader = csv.reader(in_file)
             writer = csv.writer(out_file)
             writer.writerow(CANONICAL_VERTEX_HEADER)
@@ -204,7 +204,7 @@ class GraphValidator(GraphIO):
                 writer.writerow(row)
                 vertex_number += 1
 
-        with self.edges_filename.open("r") as in_file, self.canonical_edges_filename.open("w") as out_file:
+        with self.edges_filename.open("r") as in_file, self.validated_edges_filename.open("w") as out_file:
             reader = csv.reader(in_file)
             writer = csv.writer(out_file)
             for row in reader:
