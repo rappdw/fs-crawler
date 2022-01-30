@@ -177,10 +177,14 @@ class FamilySearchAPI:
             coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
-                if result: # no return from get_relationships_from_id, so we have an exception
+                if result:
+                    # no return from get_relationships_from_id, so we have an exception
                     # we can tolerate exceptions during relationship resolution... just continue
                     # processing, but log a warning
-                    logger.warning(traceback.format_exception(result))
+                    if isinstance(result, Exception):
+                        logger.warning(traceback.format_exception(type(result), result, result.__traceback__))
+                    else:
+                        logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
                     return
             if delay:
                 time.sleep(delay)
@@ -200,8 +204,12 @@ class FamilySearchAPI:
             coroutines = [self.get_persons_from_ids(request, graph, iteration) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
-                if result: # no return from get_relationships_from_id, so we have an exception
-                    raise result
+                if result:
+                    # no return from get_relationships_from_id, so we have an exception
+                    if isinstance(result, Exception):
+                        raise result
+                    else:
+                        logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
             if iteration_count > PARTIAL_WRITE_THRESHOLD:
                 iteration_count = 0
                 writer.checkpoint_iteration(not final_iteration)
