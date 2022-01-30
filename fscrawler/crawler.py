@@ -7,6 +7,7 @@ import sys
 import time
 import argparse
 import getpass
+import keyring
 
 from collections import defaultdict
 from pathlib import Path
@@ -129,7 +130,10 @@ def main():
                 sys.exit("Invalid FamilySearch ID: " + fid)
 
     args.username = args.username if args.username else input("Enter FamilySearch username: ")
-    args.password = args.password if args.password else getpass.getpass("Enter FamilySearch password: ")
+    if not args.password:
+        args.password = keyring.get_password("fs-crawler", args.username)
+        if not args.password:
+            args.password = getpass.getpass("Enter FamilySearch password: ")
 
     out_dir = Path(args.outdir)
     basename = args.basename

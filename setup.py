@@ -36,6 +36,7 @@ setup(name=package,
       platforms=["Windows", "Linux", "Mac OS-X"],
       install_requires=[
             'httpx',
+            'keyring',
             'tqdm',
             'iteration_utilities'
       ],
