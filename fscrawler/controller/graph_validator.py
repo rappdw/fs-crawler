@@ -1,6 +1,6 @@
 import csv
 from collections import defaultdict
-from typing import DefaultDict, List, Dict, Tuple, Set
+from typing import DefaultDict, List, Dict, Tuple, Set, Generator
 from .graph_io import GraphIO
 from fscrawler.model.individual import Gender
 from fscrawler.model.relationship_types import RelationshipType
@@ -163,11 +163,13 @@ class GraphValidator(GraphIO):
             if v[0] > 1 or v[1] > 1 or v[2] > 1:
                 self.resolution_src.add(child_id)
 
-    def get_relationships_to_resolve(self):
-        relationships = set()
-        for rel_id in self.resolution_src:
-            relationships |= self.child_to_rel[rel_id]
-        return relationships
+    def get_count_of_relationships_to_resolve(self) -> int:
+        return len(self.resolution_src)
+
+    def get_relationships_to_resolve(self) -> Generator[str, None, None]:
+        for src_id in self.resolution_src:
+            for rel_id in self.child_to_rel[src_id]:
+                yield rel_id
 
     @staticmethod
     def get_year_string(birth_year: int):

@@ -5,8 +5,8 @@ from collections import defaultdict
 from typing import Dict, Tuple
 from fscrawler.controller.fsapi import partition_requests, FamilySearchAPI
 from fscrawler.controller.session import FAMILYSEARCH_LOGIN, AUTHORIZATION, BASE_URL, CURRENT_USER, FSSESSIONID
-from fscrawler.model.graph import Graph
-from fscrawler.model.relationship_types import RelationshipType
+from fscrawler.model import Graph, RelationshipType
+from fscrawler.model.graph_memory_impl import GraphMemoryImpl
 
 LOGIN_W_PARAMS = FAMILYSEARCH_LOGIN + '?ldsauth=false'
 LOCATION = 'https://location_url'
@@ -21,7 +21,7 @@ def test_partition_requests():
         3: ((18, 19, 20), (21, 22)),
     }
 
-    partitioning = partition_requests(ids, 3, 2)
+    partitioning = partition_requests(ids, len(ids), 3, 2)
     idx = 0
     for partition in partitioning.iterator:
         assert partition == expected[idx]
@@ -33,7 +33,7 @@ def test_partition_requests():
         1: (10, 11, 12, 13, 14, 15, 16, 17, 18, 19),
         2: (20, 21, 22),
     }
-    partitioning = partition_requests(ids, 1, 10)
+    partitioning = partition_requests(ids, len(ids), 1, 10)
     idx = 0
     for partition in partitioning.iterator:
         assert partition == expected[idx]
@@ -85,7 +85,7 @@ def step_relationship_json(request):
 
 
 def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_relationship_json):
-    graph = Graph()
+    graph = GraphMemoryImpl()
     fs_api.process_persons_result(persons_json, graph, 0)
     individuals = graph.get_individuals()
     count = 0
@@ -97,9 +97,13 @@ def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_re
     relationships = graph.get_relationships()
     resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
 
-    assert relationships[('KWZG-916', 'KWZQ-QZV')] == 'MHFN-X8H'
-    assert relationships[('KWZG-916', 'KWZQ-QZG')] == 'MHFN-X8H'
-    assert relationships[('KWZG-916', 'KJDT-2VN')] == '98F8-S5H'
+    results = dict()
+    for relationship, rel_id in relationships:
+        results[relationship] = rel_id
+
+    assert results[('KWZG-916', 'KWZQ-QZV')] == 'MHFN-X8H'
+    assert results[('KWZG-916', 'KWZQ-QZG')] == 'MHFN-X8H'
+    assert results[('KWZG-916', 'KJDT-2VN')] == '98F8-S5H'
     fs_api.process_relationship_result(step_relationship_json, resolved_relationships)
     assert resolved_relationships['KWZG-916']['KWZQ-QZV'][0] == RelationshipType.UNSPECIFIED_PARENT
     assert resolved_relationships['KWZG-916']['KJDT-2VN'][0] == RelationshipType.STEP_PARENT

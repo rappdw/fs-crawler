@@ -1,7 +1,6 @@
-import csv
+from abc import ABC, abstractmethod
 from collections import namedtuple
-from typing import Dict, Set, Union
-
+from typing import Generator, Tuple
 from .individual import Individual
 from .relationship_types import RelationshipType
 
@@ -16,113 +15,173 @@ REL_TYPES_TO_REPLACE = {
     RelationshipType.UNSPECIFIED_PARENT
 }
 
+"""
+    RelationshipCounts is a named tuple that holds the counts of various types
+    of edges. Types include:
+    
+    within - edge between two vertices in the graph
+    spanning - edge between a vertex in the graph and a vertex beyond the graph horizon
+    frontier - edge between two vertices beyond the graph horizon
+"""
 RelationshipCounts = namedtuple("RelationshipCounts", "within spanning frontier")
+
+"""
+    Relationship is a named tupel that holds the source and destination vertex ids
+"""
 Relationship = namedtuple("Relationship", "src dest")
 
 
-class Graph:
-    """
-    Graph of individuals in FamilySearch
-
-    This class supports the iterative building of the graph by successively crawling out one link
-    from persons in the seed set (self.processing). It does so by adding individuals on the "far"
-    end of a relationship link to the frontier (self.frontier) which is used as the seed set for
-    the next iteration
-    """
-
-    def __init__(self):
-        self.individuals: Dict[str, Union[Individual, None]] = dict()
-        self.relationships: Dict[Relationship, Union[str, None]] = dict()  # maps (src, dest) to rel_id
-        self.frontier: Set[str] = set()
-        self.visited: Set[str] = set()
-        self.processing: Set[str] = set()
-
-    def get_individuals(self):
-        return self.individuals.values()
-
-    def is_individual_in_graph(self, fs_id: str) -> bool:
-        return fs_id in self.individuals or fs_id in self.visited
-
-    def get_frontier(self):
-        return self.frontier
-
-    def get_relationships(self):
-        return self.relationships
-
-    def get_visited_individuals(self) -> Set[str]:
-        return self.visited
-
-    def add_visited_individual(self, fs_id: str, living: bool):
-        self.visited.add(fs_id)
-
-    def add_to_frontier(self, fs_id: str):
-        if fs_id not in self.visited and \
-                fs_id not in self.processing:
-            self.frontier.add(fs_id)
-
-    def add_individual(self, person: Individual):
-        if person.fid not in self.visited and person.fid not in self.individuals:
-            self.individuals[person.fid] = person
-
-    def add_parent_child_relationship(self, child, parent, rel_id):
-        if (child, parent) not in self.relationships:
-            self.relationships[(child, parent)] = rel_id
-
+class Graph(ABC):
+    @abstractmethod
     def start_iteration(self):
-        # remove from the frontier anything that has been processed in this iteration
-        self.frontier -= self.individuals.keys()
+        """
+        Graphs are built iteratively. A frontier of vertices is defined, those vertices are
+        resolved, all aut-bound edges are determined for those vertices and the
+        destination vertices for those edges are added to the frontier for the next
+        iteration.
 
-        # update our visited sets with what has been processed
-        self.visited |= self.individuals.keys()
+        start_iteration is called to prepare any internal state of the graph to begin
+        this iteration.
+        """
+        ...
 
-        # reset the collections that are used to process
-        self.individuals = dict()
+    @abstractmethod
+    def get_processing_count(self) -> int:
+        """
+        Returns the number of vertices that are in the current iteration's processing
+        set. This is also the same number as the previous iteration's frontier
 
-        # tee up the next iteration
-        self.processing = self.frontier
-        self.frontier = set()
+        Returns:
+            int: the number of vertices in the processing set
+        """
+        ...
 
-    def write_individual(self, writer: csv.writer, person: Individual, clear_on_write: bool):
-        writer.writerow([person.fid, person.gender.value, f"{person.name.surname}, {person.name.given}",
-                         person.iteration, person.lifespan])
-        if clear_on_write:
-            # by convention when a relationship is written, the individual is set to None
-            self.individuals[person.fid] = None
+    @abstractmethod
+    def get_individual_count(self) -> int:
+        """
+        Returns the number of vertices that have been fully resolved in the graph
 
-    def write_relationship(self, writer: csv.writer, src: str, dest: str, rel_type: RelationshipType, rel_id: str,
-                           clear_on_write: bool):
-        writer.writerow([src, dest, rel_type.value, rel_id])
-        if clear_on_write:
-            # by convention when a relationship is written, the rel_id is set to None
-            self.relationships[(src, dest)] = None
+        Returns:
+            int: the number of vertices in the graph
+        """
+        ...
 
-    def graph_stats(self) -> str:
-        rel_counts = self.get_relationship_count()
-        return f"{self.get_individual_count():,} vertices, {self.get_frontier_count():,} frontier, " \
-               f"{rel_counts.within:,} edges, {rel_counts.spanning:,} spanning edges, " \
-               f"{rel_counts.frontier} frontier edges"
-
-    def get_ids_to_process(self) -> Set[str]:
-        return self.processing - self.visited - self.individuals.keys() - {None}
-
-    def get_individual_count(self):
-        return len(self.individuals) + len(self.visited)
-
-    def get_frontier_count(self):
-        return len(self.frontier)
-
+    @abstractmethod
     def get_relationship_count(self) -> RelationshipCounts:
-        rel_count = 0
-        spanning_rel_count = 0
-        frontier_rel_count = 0
-        individuals = self.individuals.keys() | self.visited
-        for (src, dest) in self.relationships.keys():
-            src_in = src in individuals
-            dest_in = dest in individuals
-            if src_in and dest_in:
-                rel_count += 1
-            elif not src_in and not dest_in:
-                frontier_rel_count += 1
-            else:
-                spanning_rel_count += 1
-        return RelationshipCounts(rel_count, spanning_rel_count, frontier_rel_count)
+        """
+        Returns the number of edges that have been fully resolved in the graph
+
+        Returns:
+            RelationshipCounts: the number of edges (for various types) in the graph
+        """
+        ...
+
+    @abstractmethod
+    def get_frontier_count(self) -> int:
+        """
+        Returns the number of vertices that are 1 hop outside the currently resolved graph
+
+        Returns:
+            int: the number of vertices outside (1 hop) the horizon of the graph
+        """
+        ...
+
+    @abstractmethod
+    def get_graph_stats(self) -> str:
+        """
+        Returns a string with key metrics of the graph
+
+        Returns:
+            str: a string that represents key graph metrics
+        """
+        ...
+
+    @abstractmethod
+    def add_individual(self, individual: Individual):
+        """
+        A vertex id is resolved to an individual via calls to FamilySearch. Once resolved
+        add_individual can be called to place the fully resolved vertex in the graph
+
+        Parameters:
+            individual: Key characteristics of a vertex, e.g. name, key life events, gender, ...
+        """
+        ...
+
+    @abstractmethod
+    def add_to_frontier(self, fs_id: str):
+        """
+        Adds a vertex id to the frontier set of the graph.
+
+        Parameters:
+            fs_id: FamilySearch id of the individual
+        """
+        ...
+
+    @abstractmethod
+    def add_parent_child_relationship(self, child: str, parent: str, rel_id: str):
+        """
+        An edge in the graph is defined by a src vertex (child) a destination vertex (parent)
+        as well as the type of relationship (biological, adoptive, etc.). add_parent_child_relationship
+        will add an edge, which often results in placing either the child or parent into the
+        frontier as a side effect.
+
+        Parameters:
+            child: fs_id of the source vertex
+            parent: fs_id of the destination vertex
+            rel_id: fs_id of the relationship information (which can be resolved to determine relationship type)
+        """
+        ...
+
+    @abstractmethod
+    def add_visited_individual(self, fs_id: str):
+        """
+        Adds a vertex id to the visited vertex set.
+
+        TODO: This probably shouldn't be in the interface, rather part of the memory implementation
+
+        Parameters:
+            fs_id: FamilySearch id of the individual
+        """
+        ...
+
+    @abstractmethod
+    def is_individual_in_graph(self, fs_id: str) -> bool:
+        """
+        Returns a bool indicating whether a given vertex is already in the graph
+
+        Parameters:
+            fs_id: FamilySearch id of the vertex
+
+        Returns:
+            bool: True if individual is in graph, False if individual is not
+        """
+        ...
+
+    @abstractmethod
+    def get_relationships(self) -> Generator[Tuple[Relationship, str], None, None]:
+        """
+        Returns a Generator that yields graph Relationships (source & destination vertex) along with
+        the FamilySearch id of the relationship
+        """
+        ...
+
+    @abstractmethod
+    def get_individuals(self) -> Generator[Individual, None, None]:
+        """
+        Returns a Generator that yields Individuals in the graph
+        """
+        ...
+
+    @abstractmethod
+    def get_frontier(self) -> Generator[str, None, None]:
+        """
+        Returns a Generator that yields ids of the vertices in the graph frontier
+        """
+        ...
+
+    @abstractmethod
+    def get_ids_to_process(self) -> Generator[str, None, None]:
+        """
+        Returns the set of ids to process for the current iteration
+        """
+        ...

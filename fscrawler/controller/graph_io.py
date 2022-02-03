@@ -22,4 +22,3 @@ class GraphIO(ABC):
                exists(self.spanning_edges_filename) and \
                exists(self.frontier_vertices_filename) and \
                exists(self.frontier_edges_filename)
-

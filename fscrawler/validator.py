@@ -9,8 +9,8 @@ def validate(in_dir, basename, save_valid_graph: bool):
     print(reader.get_validation_stats())
     if len(reader.invalid_src) < 100:
         print("\nInvalid Source Vertices\n")
-        for id in reader.invalid_src:
-            print(id)
+        for fs_id in reader.invalid_src:
+            print(fs_id)
     print("\nInvalid relationships by iteration:")
     print(reader.get_validation_histogram())
     if save_valid_graph:
