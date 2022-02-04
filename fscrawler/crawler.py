@@ -9,18 +9,13 @@ import argparse
 import getpass
 import keyring
 
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Tuple
 
-from fscrawler.controller import FamilySearchAPI, GraphWriter, GraphReader, GraphIO, GraphValidator, \
-    RelationshipReWriter
-from fscrawler.model.graph import Graph
-from fscrawler.model import RelationshipType
+from fscrawler.controller import FamilySearchAPI
+from fscrawler.model.graph_db_impl import GraphDbImpl
 
 
-def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound,
-          save_living=False, individuals=None):
+def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound, individuals=None):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -33,19 +28,19 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
         sys.exit(2)
 
     # add list of starting individuals to the family tree
-    graph = Graph()
+    graph = GraphDbImpl(out_dir, basename)
     iteration_start = 0
-    # check to see if the files already exists and if so, consider this
-    # a restart
-    if GraphIO(out_dir, basename, graph).exists():
-        restart = True
-        reader = GraphReader(out_dir, basename, graph)
-        iteration_start = reader.get_max_iteration() + 1
-        iteration_bound = iteration_start + iteration_bound
-        logger.info(f"Loaded graph for restart: {graph.graph_stats()}. Running iterations {iteration_start} through "
-                    f"{iteration_bound}.")
-    else:
-        restart = False
+    # # check to see if the files already exists and if so, consider this
+    # # a restart
+    # if GraphIO(out_dir, basename, graph).exists():
+    #     restart = True
+    #     reader = GraphReader(out_dir, basename, graph)
+    #     iteration_start = reader.get_max_iteration() + 1
+    #     iteration_bound = iteration_start + iteration_bound
+    #     logger.info(f"Loaded graph for restart: {graph.get_graph_stats()}. Running iterations {iteration_start} "
+    #                 f"through {iteration_bound}.")
+    # else:
+    #     restart = False
 
     if not individuals:
         individuals = [fs.get_default_starting_id()]
@@ -56,34 +51,13 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    writer = GraphWriter(out_dir, basename, save_living, graph, restart)
-
     # crawl for specified number of iterations
     for i in range(iteration_start, iteration_bound):
-        fs.iterate(i, iteration_bound, graph, loop, writer)
+        fs.iterate(i, graph, loop)
+    fs.resolve_relationships(graph, loop)
 
-    logger.info(f"Downloaded {graph.graph_stats()}, "
+    logger.info(f"Crawl complete. Graph: {graph.get_graph_stats()}\n"
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
-
-    validator = GraphValidator(out_dir, basename)
-    relationships_to_resolve = validator.get_relationships_to_resolve()
-
-    resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
-    rel_relationship_count = len(relationships_to_resolve)
-    logger.info(f"Resolving {rel_relationship_count} relationships.")
-    if rel_relationship_count > 0:
-        fs.resolve_relationships(resolved_relationships, relationships_to_resolve, loop)
-        rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
-        rels_moved_to_aux = rewriter.rewrite_relationships()
-        logger.info(f"Moved {rels_moved_to_aux} relationships to 'auxiliary'.")
-        validator = GraphValidator(out_dir, basename)
-
-    validator.save_valid_graph()
-    if validator.get_invalid_rel_count() > 0:
-        logger.info(
-            f"{validator.get_invalid_rel_count()} invalid relationships remain after resolution: \n"
-            f"{validator.get_validation_histogram()}")
-    logger.info("Crawl complete.")
 
 
 def main():
@@ -157,8 +131,7 @@ def main():
     except OSError as exc:
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
-    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount,
-          args.save_living, individuals)
+    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount, individuals)
 
 
 if __name__ == "__main__":

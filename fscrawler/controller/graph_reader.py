@@ -1,6 +1,7 @@
 import csv
 from .graph_io import GraphIO
-from fscrawler.model.graph import Graph
+from fscrawler.model import Graph
+
 
 class GraphReader(GraphIO):
 
@@ -16,8 +17,8 @@ class GraphReader(GraphIO):
             for row in reader:
                 if row[0].startswith('#'):
                     continue
-                living = row[4].find('Living') != -1
-                self.graph.add_visited_individual(row[0], living)
+                # living = row[4].find('Living') != -1
+                self.graph.add_visited_individual(row[0])
                 self.max_iter = max(self.max_iter, int(row[3]))
         with self.frontier_vertices_filename.open("r") as file:
             reader = csv.reader(file)

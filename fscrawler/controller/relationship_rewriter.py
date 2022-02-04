@@ -1,7 +1,6 @@
 import csv
 from typing import Dict, Tuple
-from fscrawler.model.graph import Graph
-from fscrawler.model.relationship_types import RelationshipType
+from fscrawler.model import Graph, RelationshipType
 from .graph_io import GraphIO
 
 # The type of relationships we will continue to store in the edges file, all other types will be in
@@ -12,9 +11,11 @@ REWRITE_REL_TYPES = {
     RelationshipType.BIOLOGICAL_PARENT
 }
 
+
 class RelationshipReWriter(GraphIO):
 
-    def __init__(self, out_dir, basename: str, graph: Graph, relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
+    def __init__(self, out_dir, basename: str, graph: Graph,
+                 relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
         super().__init__(out_dir, basename, graph)
         self.relationships = relationships
         # copy original edges file to "orig.edges.csv"
@@ -55,4 +56,3 @@ class RelationshipReWriter(GraphIO):
                     aux_writer.writerow([child_id, parent_id, rel_type.value, rel_id])
                     rels_moved_to_aux += 1
         return rels_moved_to_aux
-

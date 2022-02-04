@@ -1,8 +1,6 @@
 import csv
-from fscrawler.model.graph import Graph
-
+from fscrawler.model import Graph, Individual, RelationshipType
 from .graph_io import GraphIO
-from .. import RelationshipType
 
 RELATIONSHIP_HEADER = ['#source_vertex', 'destination_vertex', 'relationship_type', 'relationship_id']
 VERTEX_HEADER = ["#external_id", "color", "name", "iteration", "lifespan"]
@@ -59,6 +57,24 @@ class GraphWriter(GraphIO):
             writer = csv.writer(file)
             writer.writerow(RELATIONSHIP_HEADER)
 
+    def write_individual(self, writer: csv.writer, person: Individual, clear_on_write: bool):
+        writer.writerow([person.fid, person.gender.value, f"{person.name.surname}, {person.name.given}",
+                         person.iteration, person.lifespan])
+        if clear_on_write:
+            # by convention when a relationship is written, the individual is set to None
+            # graph is a GraphMemoryImpl graph and the function exists...
+            # noinspection PyUnresolvedReferences
+            self.graph.clear_individual(person.fid)
+
+    def write_relationship(self, writer: csv.writer, src: str, dest: str, rel_type: RelationshipType, rel_id: str,
+                           clear_on_write: bool):
+        writer.writerow([src, dest, rel_type.value, rel_id])
+        if clear_on_write:
+            # by convention when a relationship is written, the rel_id is set to None
+            # graph is a GraphMemoryImpl graph and the function exists...
+            # noinspection PyUnresolvedReferences
+            self.graph.clear_relationship((src, dest))
+
     def end_iteration(self, iteration: int, duration: float, final_iteration: bool, checkpoint: bool = False):
         self.log_iteration(iteration, duration)
         relationships = self.graph.get_relationships()
@@ -67,8 +83,8 @@ class GraphWriter(GraphIO):
         with self.vertices_filename.open("a") as file:
             writer = csv.writer(file)
             for person in individuals:
-                if person and (not person.living or self.save_living):
-                    self.graph.write_individual(writer, person, True)
+                if not person.living or self.save_living:
+                    self.write_individual(writer, person, True)
         with self.edges_filename.open("a") as in_file, \
                 self.spanning_edges_filename.open("a") as span_file, \
                 self.frontier_edges_filename.open("a") as frontier_file, \
@@ -81,7 +97,7 @@ class GraphWriter(GraphIO):
                 span_writer = frontier_writer = csv.writer(temp_file)
             else:
                 span_writer = frontier_writer = None
-            for (src, dest), rel_id in relationships.items():
+            for (src, dest), rel_id in relationships:
                 clear_on_write = False
                 src_in = self.graph.is_individual_in_graph(src)
                 dest_in = self.graph.is_individual_in_graph(dest)
@@ -94,8 +110,8 @@ class GraphWriter(GraphIO):
                     else:
                         writer = span_writer
                     if writer:
-                        self.graph.write_relationship(writer, src, dest, RelationshipType.UNTYPED_PARENT, rel_id,
-                                                      clear_on_write)
+                        self.write_relationship(writer, src, dest, RelationshipType.UNTYPED_PARENT, rel_id,
+                                                clear_on_write)
 
         if not checkpoint:
             frontier = self.graph.get_frontier()
