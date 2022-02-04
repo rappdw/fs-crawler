@@ -1,6 +1,6 @@
 import csv
 from .graph_io import GraphIO
-from fscrawler.model.graph import Graph
+from fscrawler.model import Graph
 
 
 class GraphReader(GraphIO):

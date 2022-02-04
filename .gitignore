@@ -8,3 +8,4 @@ build
 *.egg-info
 *.xlsx
 notes.md
+console.sql

@@ -1,5 +1,6 @@
 from typing import Dict, Set, Union, Generator, Tuple
 
+from . import RelationshipType
 from .graph import Graph, Relationship, RelationshipCounts
 from .individual import Individual
 
@@ -13,6 +14,18 @@ class GraphMemoryImpl(Graph):
     end of a relationship link to the frontier (self.frontier) which is used as the seed set for
     the next iteration
     """
+
+    def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
+        pass
+
+    def end_iteration(self, iteration: int, duration: float):
+        pass
+
+    def get_relationships_to_resolve(self) -> Generator[str, None, None]:
+        pass
+
+    def get_count_of_relationships_to_resolve(self) -> int:
+        pass
 
     def __init__(self):
         self.individuals: Dict[str, Union[Individual, None]] = dict()

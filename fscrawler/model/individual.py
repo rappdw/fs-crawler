@@ -1,6 +1,8 @@
-from .name import Name
+import sqlite3 as sl
 from enum import Enum
 from typing import Optional
+
+from .name import Name
 
 
 class Gender(Enum):
@@ -20,7 +22,21 @@ class Individual:
         self.living: bool = False
         self.iteration: int = iteration
         self.lifespan: str
-        self._add_data(data)
+        if isinstance(data, sl.Row):
+            self._add_data_from_db(data)
+        else:
+            self._add_data(data)
+
+    def _add_data_from_db(self, data):
+        """ add individual data from DB"""
+        if "color" in data.keys():
+            self.gender = Gender(data["color"])
+        if "lifespan" in data.keys():
+            self.lifespan = data["lifespan"]
+        if "iteration" in data.keys():
+            self.iteration = data["iteration"]
+        if "name" in data.keys():
+            self.name = data["name"]
 
     def _add_data(self, data):
         """ add FS individual data """

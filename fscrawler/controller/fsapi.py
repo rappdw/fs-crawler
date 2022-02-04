@@ -6,14 +6,13 @@ import traceback
 from collections import namedtuple
 from iteration_utilities import grouper
 from math import ceil
-from typing import Dict, Tuple, Iterable
+from typing import Iterable
 from urllib.parse import urlparse
 from tqdm import tqdm
 from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
 from fscrawler.model.relationship_types import RelationshipType
-from .graph_writer import GraphWriter
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
@@ -97,24 +96,20 @@ class FamilySearchAPI:
                 rel_type = RelationshipType(new_type)
         return rel_type
 
-    async def get_relationships_from_id(self,
-                                        resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]],
-                                        rel_id: str):
-        self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"),
-                                         resolved_relationships)
+    async def get_relationships_from_id(self, rel_id: str, graph: Graph):
+        self.process_relationship_result(await self.session.get_urla(f"{RESOLVE_RELATIONSHIP}{rel_id}.json"), graph)
 
     @staticmethod
-    def _update_relationship_info(rel, child, parent, fact_key, rel_id,
-                                  resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
+    def _update_relationship_info(rel, child, parent, fact_key, rel_id, graph: Graph):
         if child and parent:
             relationship_type = FamilySearchAPI.get_relationship_type(rel, fact_key,
                                                                       RelationshipType.UNSPECIFIED_PARENT)
-            resolved_relationships[child][parent] = (relationship_type, rel_id)
+            graph.update_relationship((child, parent), relationship_type)
         else:
             logger.warning(f"Child: {child}, Parent: {parent}, Relationship: {rel_id}, value unexpected")
 
     @staticmethod
-    def process_relationship_result(data, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]]):
+    def process_relationship_result(data, graph: Graph):
         data = FamilySearchAPI.check_error(data)
         if data and "childAndParentsRelationships" in data:
             for rel in data["childAndParentsRelationships"]:
@@ -123,11 +118,9 @@ class FamilySearchAPI:
                 parent2 = rel["parent2"]["resourceId"] if "parent2" in rel else None
                 child = rel["child"]["resourceId"] if "child" in rel else None
                 if parent1:
-                    FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id,
-                                                              resolved_relationships)
+                    FamilySearchAPI._update_relationship_info(rel, child, parent1, "parent1Facts", rel_id, graph)
                 if parent2:
-                    FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id,
-                                                              resolved_relationships)
+                    FamilySearchAPI._update_relationship_info(rel, child, parent2, "parent2Facts", rel_id, graph)
 
     @staticmethod
     def check_error(data):
@@ -167,16 +160,15 @@ class FamilySearchAPI:
                     FamilySearchAPI._process_parent_child("parent1", relationship, graph, child, rel_id)
                     FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
-    def resolve_relationships(self, resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]],
-                              relationships: Iterable, relationship_count: int,
-                              loop, delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
+    def _resolve_relationships(self, relationships: Iterable[str], relationship_count: int, graph: Graph, loop,
+                               delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
         """
         Resolve relationship types in the graph
 
         Parameters:
-            resolved_relationships: dictionary to record resolutions
             relationships: an iterable of relationship ids to resolve
             relationship_count: the number of relationships to resolve
+            graph: graph that holds edges to resolve
             loop: asyncio event loop
             delay: delay between successive concurrent get_persons requests
         """
@@ -184,7 +176,7 @@ class FamilySearchAPI:
                                                  MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
-            coroutines = [self.get_relationships_from_id(resolved_relationships, request) for request in requests]
+            coroutines = [self.get_relationships_from_id(request, graph) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
                 if result:
@@ -199,10 +191,8 @@ class FamilySearchAPI:
             if delay:
                 time.sleep(delay)
 
-    def iterate(self, iteration: int, iteration_bound: int, graph: Graph, loop, writer: GraphWriter):
-        final_iteration = iteration == iteration_bound - 1
+    def iterate(self, iteration: int, graph: Graph, loop):
         graph.start_iteration()
-        writer.start_iteration()
 
         start = time.time()
 
@@ -223,10 +213,22 @@ class FamilySearchAPI:
                         logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
             if iteration_count > PARTIAL_WRITE_THRESHOLD:
                 iteration_count = 0
-                writer.checkpoint_iteration(not final_iteration)
             else:
                 time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
+
         duration = time.time() - start
+        graph.end_iteration(iteration, duration)
         logger.info(f"\tFinished iteration: {iteration}. Duration: {duration:.2f} s. "
                     f"Graph stats: {graph.get_graph_stats()}")
-        writer.end_iteration(iteration, duration, final_iteration)
+
+    def resolve_relationships(self, graph: Graph, loop):
+        start = time.time()
+
+        relationships_to_resolve = graph.get_relationships_to_resolve()
+        relationship_count = graph.get_count_of_relationships_to_resolve()
+
+        if relationship_count > 0:
+            logger.info(f"Resolving {relationship_count} relationships")
+            self._resolve_relationships(relationships_to_resolve, relationship_count, graph, loop)
+            duration = time.time() - start
+            logger.info(f"\tFinished relationship resolution. Duration: {duration:.2f} s.")
