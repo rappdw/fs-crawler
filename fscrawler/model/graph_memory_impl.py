@@ -1,5 +1,6 @@
 from typing import Dict, Set, Union, Generator, Tuple
 
+from . import RelationshipType
 from .graph import Graph, Relationship, RelationshipCounts
 from .individual import Individual
 
@@ -111,3 +112,16 @@ class GraphMemoryImpl(Graph):
 
     def clear_relationship(self, relationship: Relationship):
         self.relationships[relationship] = None
+
+    # TODO:
+    def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
+        pass
+
+    def end_iteration(self, iteration: int, duration: float):
+        pass
+
+    def get_relationships_to_resolve(self) -> Generator[str, None, None]:
+        pass
+
+    def get_count_of_relationships_to_resolve(self) -> int:
+        pass

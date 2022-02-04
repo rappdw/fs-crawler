@@ -72,7 +72,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
     resolved_relationships: Dict[str, Dict[str, Tuple[RelationshipType, str]]] = defaultdict(lambda: dict())
     logger.info(f"Resolving {relationship_count} relationships.")
     if relationship_count > 0:
-        fs.resolve_relationships(resolved_relationships, relationships_to_resolve, relationship_count, loop)
+        fs.resolve_relationships(graph, loop)
         rewriter = RelationshipReWriter(out_dir, basename, graph, resolved_relationships)
         rels_moved_to_aux = rewriter.rewrite_relationships()
         logger.info(f"Moved {rels_moved_to_aux} relationships to 'auxiliary'.")

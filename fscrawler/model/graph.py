@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from collections import namedtuple
-from typing import Generator, Tuple
+from collections import namedtuple, defaultdict
+from typing import Generator, Tuple, Iterable, DefaultDict, Set, Union
 from .individual import Individual
 from .relationship_types import RelationshipType
 
@@ -184,4 +184,65 @@ class Graph(ABC):
         """
         Returns the set of ids to process for the current iteration
         """
+        ...
+
+    @abstractmethod
+    def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
+        """
+        Update the type for a relationship
+
+        Parameters:
+            relationship_id: FamilySearch id of the relationship
+            relationship_type: Type to update the relationship to
+        """
+        ...
+
+    def determine_resolution(self, relationships: Iterable[Tuple[str, str, int]]):
+        """
+        Given a set of relationships determine which relationships should be resolved.
+
+        As a result of calling this function all relationships in the graph that were passed in will be flagged as:
+            RelationshipType.ASSUMED_BIOLOGICAL if resolution not required
+            RelationshipType.RESOLVE if resolution required
+
+        Parameters:
+            relationships: an iterable of Tuple[source id, relationship id, destination gender value], assumed to
+                be ordered by source id
+        """
+        current_source = None
+        gender_to_relationship_map = defaultdict(lambda: set())
+        for relationship in relationships:
+            if relationship[0] != current_source:
+                self._calc_updates_needed(gender_to_relationship_map)
+
+                current_source = relationship[0]
+                gender_to_relationship_map = defaultdict(lambda: set())
+                gender_to_relationship_map[relationship[2]].add(relationship[1])
+            else:
+                gender_to_relationship_map[relationship[2]].add(relationship[1])
+        self._calc_updates_needed(gender_to_relationship_map)
+
+    def _calc_updates_needed(self, gender_to_relationship_map: DefaultDict[int, Set[str]]):
+        total_relationships = 0
+        for rel_set in gender_to_relationship_map.values():
+            total_relationships += len(rel_set)
+        for rel_set in gender_to_relationship_map.values():
+            if len(rel_set):
+                if len(rel_set) == 1 and total_relationships < 3:
+                    rel_type = RelationshipType.ASSUMED_BIOLOGICAL
+                else:
+                    rel_type = RelationshipType.RESOLVE
+                for rel_id in rel_set:
+                    self.update_relationship(rel_id, rel_type)
+
+    @abstractmethod
+    def end_iteration(self, iteration: int, duration: float):
+        ...
+
+    @abstractmethod
+    def get_relationships_to_resolve(self) -> Generator[str, None, None]:
+        ...
+
+    @abstractmethod
+    def get_count_of_relationships_to_resolve(self) -> int:
         ...
