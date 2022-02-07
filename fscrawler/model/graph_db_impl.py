@@ -172,7 +172,7 @@ class GraphDbImpl(Graph):
         rel_counts = self.get_relationship_count()
         return f"{self.get_individual_count():,} vertices, {self.get_frontier_count():,} frontier, " \
                f"{rel_counts.within:,} edges, {rel_counts.spanning:,} spanning edges, " \
-               f"{rel_counts.frontier} frontier edges"
+               f"{rel_counts.frontier:,} frontier edges"
 
     def get_ids_to_process(self) -> Generator[str, None, None]:
         with self.conn:
