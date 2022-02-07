@@ -29,18 +29,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     # add list of starting individuals to the family tree
     graph = GraphDbImpl(out_dir, basename)
-    iteration_start = 0
-    # # check to see if the files already exists and if so, consider this
-    # # a restart
-    # if GraphIO(out_dir, basename, graph).exists():
-    #     restart = True
-    #     reader = GraphReader(out_dir, basename, graph)
-    #     iteration_start = reader.get_max_iteration() + 1
-    #     iteration_bound = iteration_start + iteration_bound
-    #     logger.info(f"Loaded graph for restart: {graph.get_graph_stats()}. Running iterations {iteration_start} "
-    #                 f"through {iteration_bound}.")
-    # else:
-    #     restart = False
+    iteration_start = graph.starting_iter
 
     if not individuals:
         individuals = [fs.get_default_starting_id()]
@@ -58,6 +47,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     logger.info(f"Crawl complete. Graph: {graph.get_graph_stats()}\n"
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
+    graph.close()
 
 
 def main():

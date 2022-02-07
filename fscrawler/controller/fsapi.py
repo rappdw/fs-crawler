@@ -230,5 +230,6 @@ class FamilySearchAPI:
         if relationship_count > 0:
             logger.info(f"Resolving {relationship_count} relationships")
             self._resolve_relationships(relationships_to_resolve, relationship_count, graph, loop)
-            duration = time.time() - start
-            logger.info(f"\tFinished relationship resolution. Duration: {duration:.2f} s.")
+        duration = time.time() - start
+        graph.end_relationship_resolution(relationship_count, duration)
+        logger.info(f"\tFinished relationship resolution. Duration: {duration:.2f} s.")
