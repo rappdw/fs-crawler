@@ -1,6 +1,6 @@
 import sqlite3 as sl
 from typing import Generator, Tuple, Union
-from os import rename
+from os import rename, remove
 from os.path import exists
 
 from . import Graph, Relationship, RelationshipCounts, RelationshipType, Individual
@@ -258,13 +258,20 @@ class GraphDbImpl(Graph):
             except sl.OperationalError as e:
                 raise(Exception(f"Error with query: '{query}'", e))
 
-    def close(self):
+    def close(self, gen_sql=False):
         file_conn = sl.connect(self.db_filename)
+        sql_filename = self.out_dir / f"{self.basename}.sql"
         with file_conn:
-            for line in self.conn.iterdump():
-                file_conn.execute(line)
+            with open(sql_filename, 'w') as sql_out:
+                for line in self.conn.iterdump():
+                    if gen_sql:
+                        sql_out.write(line)
+                    file_conn.execute(line)
         self.conn.close()
         file_conn.close()
+        if not gen_sql:
+            remove(sql_filename)
+
 
     def _load_db_from_disk(self):
         file_conn = sl.connect(self.db_filename)

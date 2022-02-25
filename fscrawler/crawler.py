@@ -15,7 +15,7 @@ from fscrawler.controller import FamilySearchAPI
 from fscrawler.model.graph_db_impl import GraphDbImpl
 
 
-def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound, individuals=None):
+def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound, individuals=None, gen_sql=False):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bou
 
     logger.info(f"Crawl complete. Graph: {graph.get_graph_stats()}\n"
                 f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
-    graph.close()
+    graph.close(gen_sql)
 
 
 def main():
@@ -59,6 +59,8 @@ def main():
     )
     parser.add_argument("-b", "--basename", type=str,
                         help="basename for all output files")
+    parser.add_argument("--gen-sql", action="store_true", default=False,
+                        help="generate sql file in addition to databse")
     parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
                         help="Number of crawl iterations to run")
     parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
@@ -67,8 +69,6 @@ def main():
                         help="output directory", required=True)
     parser.add_argument("-p", "--password", metavar="<STR>", type=str,
                         help="FamilySearch password")
-    parser.add_argument("--save-living", action="store_true", default=False,
-                        help="When writing out csf files, save living individuals")
     parser.add_argument("--show-password", action="store_true", default=False,
                         help="Show password in .settings file [False]")
     parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60,
@@ -121,7 +121,7 @@ def main():
     except OSError as exc:
         sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
 
-    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount, individuals)
+    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount, individuals, args.gen_sql)
 
 
 if __name__ == "__main__":
