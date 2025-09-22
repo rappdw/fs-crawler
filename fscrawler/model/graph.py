@@ -33,7 +33,7 @@ Relationship = namedtuple("Relationship", "src dest")
 
 class Graph(ABC):
     @abstractmethod
-    def start_iteration(self):
+    def start_iteration(self, iteration: int):
         """
         Graphs are built iteratively. A frontier of vertices is defined, those vertices are
         resolved, all aut-bound edges are determined for those vertices and the
@@ -182,6 +182,11 @@ class Graph(ABC):
         """
         Returns the set of ids to process for the current iteration
         """
+        ...
+
+    @abstractmethod
+    def checkpoint(self, iteration: int, reason: str):
+        """Persist a durable checkpoint for the current crawl state."""
         ...
 
     @abstractmethod

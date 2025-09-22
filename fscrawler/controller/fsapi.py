@@ -192,7 +192,7 @@ class FamilySearchAPI:
                 time.sleep(delay)
 
     def iterate(self, iteration: int, graph: Graph, loop):
-        graph.start_iteration()
+        graph.start_iteration(iteration)
 
         start = time.time()
 
@@ -211,7 +211,11 @@ class FamilySearchAPI:
                         raise result
                     else:
                         logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
+            if hasattr(graph, "checkpoint"):
+                graph.checkpoint(iteration, "batch")
             if iteration_count > PARTIAL_WRITE_THRESHOLD:
+                if hasattr(graph, "checkpoint"):
+                    graph.checkpoint(iteration, "partial-write")
                 iteration_count = 0
             else:
                 time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
@@ -232,4 +236,6 @@ class FamilySearchAPI:
             self._resolve_relationships(relationships_to_resolve, relationship_count, graph, loop)
         duration = time.time() - start
         graph.end_relationship_resolution(relationship_count, duration)
+        if hasattr(graph, "checkpoint"):
+            graph.checkpoint(graph.starting_iter, "relationships")
         logger.info(f"\tFinished relationship resolution. Duration: {duration:.2f} s.")

@@ -17,7 +17,7 @@ class GraphTest(Graph):
     def __init__(self):
         self.results = dict()
 
-    def start_iteration(self):
+    def start_iteration(self, iteration: int):
         pass
 
     def get_processing_count(self) -> int:
@@ -63,6 +63,9 @@ class GraphTest(Graph):
         pass
 
     def get_ids_to_process(self) -> Generator[str, None, None]:
+        pass
+
+    def checkpoint(self, iteration: int, reason: str):
         pass
 
     def get_candidate_relationships(self) -> Generator[Tuple[str, str, int], None, None]:

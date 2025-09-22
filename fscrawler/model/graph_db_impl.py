@@ -1,6 +1,8 @@
+import json
 import sqlite3 as sl
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generator, Iterable, Tuple, Union
+from typing import Any, Dict, Generator, Iterable, Optional, Tuple, Union
 
 from . import Graph, Relationship, RelationshipCounts, RelationshipType, Individual
 
@@ -114,26 +116,41 @@ class GraphDbImpl(Graph):
                     ),
                 )
 
-    def start_iteration(self):
+    def start_iteration(self, iteration: int):
         with self.conn:
+            self._set_metadata("active_iteration", iteration)
             self.conn.execute(f"DELETE FROM {PROCESSING_TABLE}")
             self.conn.execute(
                 f"INSERT INTO {PROCESSING_TABLE} (fs_id) "
                 f"SELECT fs_id FROM {FRONTIER_TABLE} ORDER BY seq"
             )
             self.conn.execute(f"DELETE FROM {FRONTIER_TABLE}")
+            self._record_checkpoint_metadata(iteration, phase="start")
 
     def end_iteration(self, iteration: int, duration: float):
         rel_counts = self.get_relationship_count()
         vertices = self.get_individual_count()
         frontier = self.get_frontier_count()
         with self.conn:
-            self.conn.execute(f"""
-            INSERT INTO LOG (iteration, duration, vertices, frontier, edges, spanning_edges, frontier_edges) 
-            values('{iteration}', '{duration}', '{vertices}', '{frontier}', '{rel_counts.within}', 
-            '{rel_counts.spanning}', '{rel_counts.frontier}')
-            """)
+            self.conn.execute(
+                """
+                INSERT INTO LOG (iteration, duration, vertices, frontier, edges, spanning_edges, frontier_edges) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    iteration,
+                    duration,
+                    vertices,
+                    frontier,
+                    rel_counts.within,
+                    rel_counts.spanning,
+                    rel_counts.frontier,
+                ),
+            )
             self.conn.commit()
+            self._set_metadata("active_iteration", None)
+            self._set_metadata("last_completed_iteration", iteration)
+            self._record_checkpoint_metadata(iteration, phase="iteration-complete")
         self.starting_iter = iteration + 1
 
     def end_relationship_resolution(self, count: int, duration: float):
@@ -157,6 +174,45 @@ class GraphDbImpl(Graph):
             )
             for row in cursor:
                 yield row[0]
+
+    def checkpoint(self, iteration: int, reason: str):
+        with self.conn:
+            self.conn.commit()
+            self._record_checkpoint_metadata(iteration, phase=reason)
+
+    def record_run_configuration(self, config: Dict[str, Any]) -> None:
+        sanitized = {key: value for key, value in config.items() if key != "password"}
+        with self.conn:
+            self._set_metadata("run_configuration", sanitized)
+
+    def record_seed_snapshot(self, seeds: Iterable[str]) -> None:
+        existing = self._get_metadata("seed_history") or []
+        merged = list(dict.fromkeys(list(existing) + [seed for seed in seeds if seed]))
+        with self.conn:
+            self._set_metadata("seed_history", merged)
+
+    def get_checkpoint_status(self) -> Dict[str, Any]:
+        status: Dict[str, Any] = {
+            "active_iteration": self._get_metadata("active_iteration"),
+            "starting_iteration": self.starting_iter,
+            "frontier_count": self.get_frontier_count(),
+            "processing_count": self.get_processing_count(),
+            "vertex_count": self.get_individual_count(),
+            "last_checkpoint": self._get_metadata("last_checkpoint"),
+            "run_configuration": self._get_metadata("run_configuration") or {},
+            "seed_history": self._get_metadata("seed_history") or [],
+            "frontier_preview": self.peek_frontier(5),
+        }
+
+        last_completed = self._get_metadata("last_completed_iteration")
+        if last_completed is None:
+            with self.conn:
+                row = self.conn.execute(
+                    "SELECT MAX(iteration) FROM LOG WHERE iteration IS NOT NULL"
+                ).fetchone()
+                last_completed = row[0] if row and row[0] is not None else None
+        status["last_completed_iteration"] = last_completed
+        return status
 
     def _get_count(self, table: str):
         with self.conn:
@@ -231,6 +287,7 @@ class GraphDbImpl(Graph):
 
     def seed_frontier_if_empty(self, fs_ids: Iterable[str]) -> int:
         inserted = 0
+        inserted_ids = []
         with self.conn:
             frontier_count = self.conn.execute(
                 f"SELECT COUNT(*) FROM {FRONTIER_TABLE}"
@@ -255,6 +312,9 @@ class GraphDbImpl(Graph):
                 )
                 if cursor.rowcount == 1:
                     inserted += 1
+                    inserted_ids.append(fs_id)
+        if inserted_ids:
+            self.record_seed_snapshot(inserted_ids)
         return inserted
 
     def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
@@ -283,6 +343,48 @@ class GraphDbImpl(Graph):
                 for line in self.conn.iterdump():
                     sql_out.write(f"{line}\n")
         self.conn.close()
+
+    def _record_checkpoint_metadata(self, iteration: Optional[int], phase: str) -> None:
+        snapshot = {
+            "iteration": iteration,
+            "phase": phase,
+            "timestamp": self._now_iso(),
+            "frontier": self.get_frontier_count(),
+            "processing": self.get_processing_count(),
+            "vertices": self.get_individual_count(),
+            "frontier_preview": self.peek_frontier(5),
+        }
+        self._set_metadata("last_checkpoint", snapshot)
+
+    def _set_metadata(self, key: str, value: Any) -> None:
+        payload = json.dumps(value)
+        self.conn.execute(
+            """
+            INSERT INTO JOB_METADATA (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE
+            SET value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (key, payload),
+        )
+
+    def _get_metadata(self, key: str) -> Optional[Any]:
+        cursor = self.conn.execute(
+            "SELECT value FROM JOB_METADATA WHERE key = ?",
+            (key,),
+        )
+        row = cursor.fetchone()
+        if not row or row[0] is None:
+            return None
+        try:
+            return json.loads(row[0])
+        except json.JSONDecodeError:
+            return row[0]
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(UTC).replace(microsecond=0).isoformat()
 
     def _configure_connection(self):
         # enable WAL for better concurrency/durability without blocking readers
@@ -317,10 +419,20 @@ class GraphDbImpl(Graph):
         self.conn.commit()
 
     def _load_starting_iter(self) -> int:
+        active = self._get_metadata("active_iteration")
+        if isinstance(active, int):
+            return active
+
         with self.conn:
             cursor = self.conn.execute("SELECT MAX(iteration) FROM LOG WHERE iteration IS NOT NULL")
             result = cursor.fetchone()[0]
-        return (result + 1) if result is not None else 0
+        if result is not None:
+            return result + 1
+
+        last_completed = self._get_metadata("last_completed_iteration")
+        if isinstance(last_completed, int):
+            return last_completed + 1
+        return 0
 
     def _create_base_tables(self) -> None:
         self.conn.execute("""
@@ -354,6 +466,13 @@ class GraphDbImpl(Graph):
                 edges INTEGER,
                 spanning_edges INTEGER,
                 frontier_edges INTEGER
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS JOB_METADATA (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
 

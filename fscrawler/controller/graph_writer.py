@@ -52,7 +52,7 @@ class GraphWriter(GraphIO):
         # self.end_iteration(final_iteration, True)
         pass
 
-    def start_iteration(self):
+    def start_iteration(self, iteration: int):
         with self.temp_edges_filename.open("w") as file:
             writer = csv.writer(file)
             writer.writerow(RELATIONSHIP_HEADER)

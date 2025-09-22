@@ -1,127 +1,222 @@
+import argparse
 import asyncio
 import faulthandler
-import signal
+import getpass
+import json
 import logging
 import re
+import signal
 import sys
 import time
-import argparse
-import getpass
-import keyring
-
+from datetime import UTC, datetime
 from pathlib import Path
+
+import keyring
 
 from fscrawler.controller import FamilySearchAPI
 from fscrawler.model.graph_db_impl import GraphDbImpl
 
-
-def crawl(out_dir, basename, username, password, timeout, verbose, iteration_bound, individuals=None, gen_sql=False):
-    logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if verbose else logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    time_count = time.time()
-
-    # initialize a FamilySearch session and a family tree object
-    logger.info("Login to FamilySearch...")
-    fs = FamilySearchAPI(username, password, verbose, timeout)
-    if not fs.is_logged_in():
-        sys.exit(2)
-
-    # add list of starting individuals to the family tree
-    graph = GraphDbImpl(out_dir, basename)
-    iteration_start = graph.starting_iter
-
-    if not individuals:
-        individuals = [fs.get_default_starting_id()]
-    for fs_id in individuals:
-        graph.add_to_frontier(fs_id)
-
-    # setup asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # crawl for specified number of iterations
-    for i in range(iteration_start, iteration_bound):
-        fs.iterate(i, graph, loop)
-    fs.resolve_relationships(graph, loop)
-
-    logger.info(f"Crawl complete. Graph: {graph.get_graph_stats()}\n"
-                f"duration: {(round(time.time() - time_count)):,} seconds, HTTP Requests: {fs.get_counter():,}.")
-    graph.close(gen_sql)
+RUN_USAGE = "crawl-fs [run] -u username -p password [options]"
 
 
-def main():
+def parse_run_args(argv):
     parser = argparse.ArgumentParser(
-        description="crawl-fs - Crawl the FamilySearch tree and extract vertices and edges for ingestion "
-                    "into RedBlackGraph",
+        description="crawl-fs run - Crawl the FamilySearch tree and extract vertices and edges for ingestion into RedBlackGraph",
         add_help=False,
-        usage="crawl-fs -u username -p password [options]",
+        usage=RUN_USAGE,
     )
-    parser.add_argument("-b", "--basename", type=str,
-                        help="basename for all output files")
+    parser.add_argument("-b", "--basename", type=str, help="basename for all output files")
     parser.add_argument("--gen-sql", action="store_true", default=False,
-                        help="generate sql file in addition to databse")
+                        help="generate sql file in addition to database")
     parser.add_argument("-h", "--hopcount", metavar="<INT>", type=int, default=4,
                         help="Number of crawl iterations to run")
     parser.add_argument("-i", "--individuals", metavar="<STR>", nargs="+", action="append", type=str,
                         help="Starting list of individual FamilySearch IDs for the crawl")
-    parser.add_argument("-o", "--outdir", type=str,
-                        help="output directory", required=True)
-    parser.add_argument("-p", "--password", metavar="<STR>", type=str,
-                        help="FamilySearch password")
+    parser.add_argument("-o", "--outdir", type=str, required=True, help="output directory")
+    parser.add_argument("-p", "--password", metavar="<STR>", type=str, help="FamilySearch password")
     parser.add_argument("--show-password", action="store_true", default=False,
                         help="Show password in .settings file [False]")
     parser.add_argument("-t", "--timeout", metavar="<INT>", type=int, default=60,
                         help="Timeout in seconds [60]")
-    parser.add_argument("-u", "--username", metavar="<STR>", type=str,
-                        help="FamilySearch username")
+    parser.add_argument("-u", "--username", metavar="<STR>", type=str, help="FamilySearch username")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
                         help="Increase output verbosity [False]")
+    parser.add_argument("-?", "--help", action="help", help="Show this help message and exit")
 
-    # extract arguments from the command line
-    try:
-        parser.error = parser.exit
-        args = parser.parse_args()
-    except SystemExit as e:
-        print(f"\n\n*****\n{e}\n*****\n\n")
-        parser.print_help()
-        sys.exit(2)
-    individuals = None
+    args = parser.parse_args(argv)
     if args.individuals:
-        individuals = [item for sublist in args.individuals for item in sublist]
-        for fid in individuals:
+        flattened = [item for sublist in args.individuals for item in sublist]
+        for fid in flattened:
             if not re.match(r"[A-Z0-9]{4}-[A-Z0-9]{3}", fid):
-                sys.exit("Invalid FamilySearch ID: " + fid)
+                parser.error(f"Invalid FamilySearch ID: {fid}")
+        args.individuals = flattened
+    else:
+        args.individuals = []
+    return args, parser
 
-    args.username = args.username if args.username else input("Enter FamilySearch username: ")
+
+def parse_checkpoint_args(argv):
+    parser = argparse.ArgumentParser(
+        description="crawl-fs checkpoint --status - Inspect or manage crawl checkpoints",
+        add_help=False,
+        usage="crawl-fs checkpoint --status -o OUTDIR [-b BASENAME]",
+    )
+    parser.add_argument("--status", action="store_true", default=False,
+                        help="Show checkpoint status for the specified crawl database")
+    parser.add_argument("-o", "--outdir", required=True, type=str,
+                        help="output directory where the crawl database lives")
+    parser.add_argument("-b", "--basename", type=str, help="crawl basename (defaults to current user)")
+    parser.add_argument("-?", "--help", action="help", help="Show this help message and exit")
+
+    args = parser.parse_args(argv)
+    if not args.status:
+        parser.error("checkpoint currently supports only the --status action")
+    return args
+
+
+def resolve_credentials(args):
+    if not args.username:
+        args.username = input("Enter FamilySearch username: ")
     if not args.password:
-        args.password = keyring.get_password("fs-crawler", args.username)
-        if not args.password:
+        stored = keyring.get_password("fs-crawler", args.username)
+        if stored:
+            args.password = stored
+        else:
             args.password = getpass.getpass("Enter FamilySearch password: ")
+    return args
 
-    out_dir = Path(args.outdir)
-    basename = args.basename
-    if not basename:
-        basename = getpass.getuser()
 
-    # Report settings used when crawler.py is executed.
-    def parse_action(act):
-        if not args.show_password and act.dest == "password":
-            return "******"
-        value = getattr(args, act.dest)
-        return str(getattr(value, "name", value))
-
+def write_settings_file(out_dir: Path, basename: str, parser: argparse.ArgumentParser, args, command: str) -> None:
     formatting = "{:74}{:\t>1}\n"
     settings_name = out_dir / f"{basename}.settings"
     try:
         with settings_name.open("w") as settings_file:
             settings_file.write(formatting.format("time stamp: ", time.strftime("%X %x %Z")))
+            settings_file.write(formatting.format("command", command))
             for action in parser._actions:
-                settings_file.write(formatting.format(action.option_strings[-1], parse_action(action)))
+                if not action.option_strings:
+                    continue
+                dest = action.dest
+                if dest == "help":
+                    continue
+                value = getattr(args, dest, None)
+                if dest == "password" and not args.show_password:
+                    value = "******"
+                if isinstance(value, list):
+                    value = ",".join(value)
+                settings_file.write(formatting.format(action.option_strings[-1], value))
     except OSError as exc:
-        sys.stderr.write(f"Unable to write {settings_name}: f{repr(exc)}")
+        sys.stderr.write(f"Unable to write {settings_name}: {repr(exc)}")
 
-    crawl(out_dir, basename, args.username, args.password, args.timeout, args.verbose, args.hopcount, individuals, args.gen_sql)
+
+def run_crawl(args, resume: bool):
+    logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if args.verbose else logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    logger.info("Login to FamilySearch...")
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout)
+    if not fs.is_logged_in():
+        sys.exit(2)
+
+    graph = GraphDbImpl(args.outdir, args.basename)
+
+    run_started = datetime.now(UTC).replace(microsecond=0).isoformat()
+    config_snapshot = {
+        "username": args.username,
+        "timeout": args.timeout,
+        "hopcount": args.hopcount,
+        "verbose": args.verbose,
+        "resume": resume,
+        "started_at": run_started,
+    }
+    if args.individuals:
+        config_snapshot["cli_individuals"] = args.individuals
+    if hasattr(graph, "record_run_configuration"):
+        graph.record_run_configuration(config_snapshot)
+
+    seeds = list(args.individuals)
+    if not seeds:
+        seeds = [fs.get_default_starting_id()]
+
+    seeded = graph.seed_frontier_if_empty(seeds)
+    if seeded:
+        logger.info("Seeded %s individual(s) into the frontier queue.", seeded)
+    elif resume:
+        logger.info("Frontier already populated; resuming existing crawl state.")
+    else:
+        logger.info("Frontier already populated; continuing existing crawl state.")
+
+    if hasattr(graph, "record_seed_snapshot"):
+        graph.record_seed_snapshot(seeds)
+
+    if hasattr(graph, "checkpoint"):
+        graph.checkpoint(graph.starting_iter, "pre-run")
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    duration_seconds = 0
+    stats = None
+    request_count = 0
+    try:
+        time_start = time.time()
+        for iteration in range(graph.starting_iter, args.hopcount):
+            fs.iterate(iteration, graph, loop)
+        fs.resolve_relationships(graph, loop)
+        duration_seconds = round(time.time() - time_start)
+        stats = graph.get_graph_stats()
+        request_count = fs.get_counter()
+        if hasattr(graph, "checkpoint"):
+            final_iteration = max(graph.starting_iter - 1, 0)
+            graph.checkpoint(final_iteration, "post-run")
+    finally:
+        loop.stop()
+        loop.close()
+        graph.close(args.gen_sql)
+
+    stats = stats or "unavailable"
+
+    logger.info(
+        "Crawl complete. Graph: %s\n" "duration: %s seconds, HTTP Requests: %s.",
+        stats,
+        f"{duration_seconds:,}",
+        f"{request_count:,}",
+    )
+
+
+def checkpoint_status(args):
+    out_dir = Path(args.outdir)
+    basename = args.basename or getpass.getuser()
+    graph = GraphDbImpl(out_dir, basename)
+    try:
+        status = graph.get_checkpoint_status()
+    finally:
+        graph.close()
+    print(json.dumps(status, indent=2, sort_keys=True))
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv and argv[0] == "checkpoint":
+        checkpoint_args = parse_checkpoint_args(argv[1:])
+        checkpoint_status(checkpoint_args)
+        return
+
+    resume = False
+    if argv and argv[0] == "resume":
+        resume = True
+        argv = argv[1:]
+
+    args, parser = parse_run_args(argv)
+    args = resolve_credentials(args)
+
+    args.outdir = Path(args.outdir)
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    args.basename = args.basename or getpass.getuser()
+
+    write_settings_file(args.outdir, args.basename, parser, args, "resume" if resume else "run")
+
+    run_crawl(args, resume=resume)
 
 
 if __name__ == "__main__":

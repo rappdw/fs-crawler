@@ -103,7 +103,7 @@ class GraphMemoryImpl(Graph):
         if (child, parent) not in self.relationships:
             self.relationships[(child, parent)] = rel_id
 
-    def start_iteration(self):
+    def start_iteration(self, iteration: int):
         # remove already processed individuals from the frontier queue
         if self.individuals:
             processed = set(self.individuals.keys())
@@ -138,6 +138,10 @@ class GraphMemoryImpl(Graph):
         for fs_id in list(self.processing_queue):
             if fs_id and fs_id not in self.visited:
                 yield fs_id
+
+    def checkpoint(self, iteration: int, reason: str):
+        # No-op for in-memory graph.
+        pass
 
     def get_individual_count(self):
         return len(self.individuals) + len(self.visited)

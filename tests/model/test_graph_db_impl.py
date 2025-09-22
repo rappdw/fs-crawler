@@ -65,7 +65,7 @@ def test_graph_db_impl_resume_iteration(tmp_path, sample_person):
 
     graph.add_to_frontier("P1")
     graph.add_to_frontier("P2")
-    graph.start_iteration()
+    graph.start_iteration(0)
     graph.add_individual(Individual(sample_person, iteration=0))
     second = copy.deepcopy(sample_person)
     second["id"] = "P2"
@@ -87,11 +87,13 @@ def test_frontier_fifo_and_seed_utilities(tmp_path):
         inserted = graph.seed_frontier_if_empty(["A", "B", "C"])
         assert inserted == 3
         assert graph.peek_frontier(2) == ("A", "B")
+        status = graph.get_checkpoint_status()
+        assert status["seed_history"] == ["A", "B", "C"]
 
         # Adding more when not empty should not reseed.
         assert graph.seed_frontier_if_empty(["D"]) == 0
 
-        graph.start_iteration()
+        graph.start_iteration(0)
         ids = list(graph.get_ids_to_process())
         assert ids == ["A", "B", "C"]
         # Process the first id and ensure FIFO removal from processing queue.
@@ -118,6 +120,28 @@ def test_frontier_fifo_and_seed_utilities(tmp_path):
         assert remaining == ["B", "C"]
     finally:
         graph.close()
+
+
+def test_checkpoint_metadata_and_resume(tmp_path):
+    graph = GraphDbImpl(tmp_path, "metadata")
+    try:
+        graph.record_run_configuration({"username": "user", "resume": False, "started_at": "2024-01-01T00:00:00Z"})
+        graph.seed_frontier_if_empty(["S1", "S2"])
+        graph.start_iteration(3)
+        graph.checkpoint(3, "batch")
+        status = graph.get_checkpoint_status()
+        assert status["active_iteration"] == 3
+        assert status["seed_history"] == ["S1", "S2"]
+    finally:
+        graph.close()
+
+    reopened = GraphDbImpl(tmp_path, "metadata")
+    try:
+        assert reopened.starting_iter == 3
+        status = reopened.get_checkpoint_status()
+        assert status["active_iteration"] == 3
+    finally:
+        reopened.close()
 
 
 def test_migrates_existing_v1_schema(tmp_path):
