@@ -1,14 +1,12 @@
-import pytest
 import json
 import pathlib
-from typing import Tuple, Union, Generator
-from fscrawler.controller.fsapi import partition_requests, FamilySearchAPI
-from fscrawler.controller.session import FAMILYSEARCH_LOGIN, AUTHORIZATION, BASE_URL, CURRENT_USER, FSSESSIONID
+from typing import Generator, Tuple, Union
+
+import pytest
+
+from fscrawler.controller.fsapi import FamilySearchAPI, partition_requests
 from fscrawler.model import RelationshipType
 from fscrawler.model.graph_memory_impl import GraphMemoryImpl
-
-LOGIN_W_PARAMS = FAMILYSEARCH_LOGIN + '?ldsauth=false'
-LOCATION = 'https://location_url'
 
 
 def test_partition_requests():
@@ -41,18 +39,18 @@ def test_partition_requests():
 
 
 @pytest.fixture
-def fs_api(httpx_mock):
-    """Setup a mock fs_api and mock the login process"""
-    httpx_mock.add_response(url=LOGIN_W_PARAMS, json={}, headers={'location': LOCATION})
-    httpx_mock.add_response(url=LOCATION, text='name="params" value="012345678901234567890123456789"',
-                            headers={'Set-Cookie': f'{FSSESSIONID}=12345'})
-    httpx_mock.add_response(url=AUTHORIZATION, text='', headers={'location': LOCATION})
-    httpx_mock.add_response(url=BASE_URL + CURRENT_USER,
-                            json={'users': [
-                                {'personId': 'P1', 'preferredLanguage': 'English', 'displayName': 'Test User'}
-                            ]})
-    api = FamilySearchAPI('user', 'password', False)
-    return api
+def fs_api(monkeypatch):
+    class DummySession:
+        def __init__(self, username, password, verbose=False, timeout=60):
+            self.counter = 0
+            self.logged = True
+            self.fid = "P1"
+
+        def is_logged_in(self):
+            return self.logged
+
+    monkeypatch.setattr("fscrawler.controller.fsapi.Session", DummySession)
+    return FamilySearchAPI("user", "password", False)
 
 
 @pytest.fixture
