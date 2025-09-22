@@ -1,10 +1,11 @@
 import sqlite3 as sl
+from pathlib import Path
 from typing import Generator, Tuple, Union
-from os import rename, remove
-from os.path import exists
 
 from . import Graph, Relationship, RelationshipCounts, RelationshipType, Individual
 
+
+CURRENT_SCHEMA_VERSION = 1
 
 class GraphDbImpl(Graph):
     """
@@ -17,66 +18,14 @@ class GraphDbImpl(Graph):
     """
 
     def __init__(self, out_dir, basename: str):
-        self.out_dir = out_dir
+        self.out_dir = Path(out_dir)
         self.basename = basename
-        self.db_filename = out_dir / f"{basename}.db"
-        self.conn = sl.connect(":memory:")
-        self.starting_iter = 0
-        if exists(self.db_filename):
-            self._load_db_from_disk()
-        else:
-            with self.conn:
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS VERTEX (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY,
-                    color INTEGER, 
-                    surname STRING,
-                    given_name STRING,
-                    iteration INTEGER,
-                    lifespan STRING
-                );
-                """)
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS EDGE (
-                    source VARCHAR(8),
-                    destination VARCHAR(8),
-                    type STRING,
-                    id VARCHAR(8)
-                );
-                """)
-                self.conn.execute("""
-                CREATE INDEX IF NOT EXISTS EDGE_SOURCE_IDX ON EDGE(source)
-                """)
-                self.conn.execute("""
-                CREATE INDEX IF NOT EXISTS EDGE_DESTINATION_IDX ON EDGE(destination)
-                """)
-                self.conn.execute("""
-                CREATE INDEX IF NOT EXISTS EDGE_TYPE_IDX ON EDGE(type)
-                """)
-                self.conn.execute("""
-                CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)
-                """)
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS FRONTIER_VERTEX (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY
-                );
-                """)
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS PROCESSING (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY
-                );
-                """)
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS LOG (
-                    iteration INTEGER,
-                    duration FLOAT,
-                    vertices INTEGER,
-                    frontier INTEGER,
-                    edges INTEGER,
-                    spanning_edges INTEGER,
-                    frontier_edges INTEGER
-                );
-                """)
+        self.db_filename = self.out_dir / f"{basename}.db"
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.conn = sl.connect(str(self.db_filename))
+        self._configure_connection()
+        self._ensure_schema()
+        self.starting_iter = self._load_starting_iter()
 
     def get_processing_count(self):
         with self.conn:
@@ -158,7 +107,7 @@ class GraphDbImpl(Graph):
             '{rel_counts.spanning}', '{rel_counts.frontier}')
             """)
             self.conn.commit()
-        self.starting_iter = iteration
+        self.starting_iter = iteration + 1
 
     def end_relationship_resolution(self, count: int, duration: float):
         with self.conn:
@@ -259,25 +208,82 @@ class GraphDbImpl(Graph):
                 raise(Exception(f"Error with query: '{query}'", e))
 
     def close(self, gen_sql=False):
-        file_conn = sl.connect(self.db_filename)
-        sql_filename = self.out_dir / f"{self.basename}.sql"
-        with file_conn:
-            with open(sql_filename, 'w') as sql_out:
+        if gen_sql:
+            sql_filename = self.out_dir / f"{self.basename}.sql"
+            with sql_filename.open("w") as sql_out:
                 for line in self.conn.iterdump():
-                    if gen_sql:
-                        sql_out.write(line)
-                    file_conn.execute(line)
+                    sql_out.write(f"{line}\n")
         self.conn.close()
-        file_conn.close()
-        if not gen_sql:
-            remove(sql_filename)
 
+    def _configure_connection(self):
+        # enable WAL for better concurrency/durability without blocking readers
+        self.conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        # prefer durability; FULL is SQLite default, keep explicit for clarity
+        self.conn.execute("PRAGMA synchronous=FULL")
+        self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.execute("PRAGMA busy_timeout=30000")
 
-    def _load_db_from_disk(self):
-        file_conn = sl.connect(self.db_filename)
+    def _ensure_schema(self):
+        current_version = self._get_user_version()
         with self.conn:
-            for line in file_conn.iterdump():
-                self.conn.execute(line)
-            self.starting_iter = self.conn.execute("select MAX(iteration) FROM LOG").fetchone()[0] + 1
-        file_conn.close()
-        rename(self.db_filename, f"{self.db_filename}.bak")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS VERTEX (
+                    id VARCHAR(8) NOT NULL PRIMARY KEY,
+                    color INTEGER,
+                    surname STRING,
+                    given_name STRING,
+                    iteration INTEGER,
+                    lifespan STRING
+                )
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS EDGE (
+                    source VARCHAR(8),
+                    destination VARCHAR(8),
+                    type STRING,
+                    id VARCHAR(8)
+                )
+            """)
+            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_SOURCE_IDX ON EDGE(source)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_DESTINATION_IDX ON EDGE(destination)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_TYPE_IDX ON EDGE(type)")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS FRONTIER_VERTEX (
+                    id VARCHAR(8) NOT NULL PRIMARY KEY
+                )
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS PROCESSING (
+                    id VARCHAR(8) NOT NULL PRIMARY KEY
+                )
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS LOG (
+                    iteration INTEGER,
+                    duration FLOAT,
+                    vertices INTEGER,
+                    frontier INTEGER,
+                    edges INTEGER,
+                    spanning_edges INTEGER,
+                    frontier_edges INTEGER
+                )
+            """)
+        if current_version == 0:
+            self._set_user_version(CURRENT_SCHEMA_VERSION)
+        elif current_version > CURRENT_SCHEMA_VERSION:
+            raise RuntimeError(f"Unsupported schema version {current_version}")
+
+    def _get_user_version(self) -> int:
+        cursor = self.conn.execute("PRAGMA user_version")
+        return cursor.fetchone()[0]
+
+    def _set_user_version(self, version: int) -> None:
+        self.conn.execute(f"PRAGMA user_version={version}")
+        self.conn.commit()
+
+    def _load_starting_iter(self) -> int:
+        with self.conn:
+            cursor = self.conn.execute("SELECT MAX(iteration) FROM LOG WHERE iteration IS NOT NULL")
+            result = cursor.fetchone()[0]
+        return (result + 1) if result is not None else 0

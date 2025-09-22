@@ -7,7 +7,7 @@ relationship-resolution phase.
 
 ## Crawl Entry Points
 - `crawler.crawl` seeds credentials, output paths, and logging, then instantiates `FamilySearchAPI` and `GraphDbImpl` (`fscrawler/crawler.py:16`).
-- Startup seeds (`--individuals` or `FamilySearchAPI.get_default_starting_id`) are inserted into the frontier via `GraphDbImpl.add_to_frontier` (`graph_db_impl.py:68`).
+- Startup seeds (`--individuals` or `FamilySearchAPI.get_default_starting_id`) are inserted into the frontier via `GraphDbImpl.add_to_frontier` (`fscrawler/model/graph_db_impl.py:66`).
 - An asyncio event loop is created, and `FamilySearchAPI.iterate` is invoked for each hop (`crawler.py:41`). After the loop completes, `FamilySearchAPI.resolve_relationships` is called to classify parent-child edges.
 
 ## Iteration Data Flow
@@ -21,13 +21,13 @@ PROCESSING (GraphDbImpl)
 FamilySearchAPI.iterate()
   ├─ partition_requests() splits PROCESSING ids into async batches (`fsapi.py:120`).
   ├─ Session.get_urla() issues batched `/platform/tree/persons` calls.
-  └─ process_persons_result():
-       • add_individual() inserts into VERTEX and removes id from PROCESSING (`graph_db_impl.py:82`).
-       • add_parent_child_relationship() records EDGE rows and pushes unseen ids back onto FRONTIER_VERTEX (`graph_db_impl.py:95`).
+      └─ process_persons_result():
+       • add_individual() inserts into VERTEX and removes id from PROCESSING (`fscrawler/model/graph_db_impl.py:71`).
+       • add_parent_child_relationship() records EDGE rows and pushes unseen ids back onto FRONTIER_VERTEX (`fscrawler/model/graph_db_impl.py:82`).
 ```
 - Each request batch is awaited with `asyncio.gather`; exceptions bubble out to halt the iteration (`fsapi.py:185`).
 - Between batches the crawler throttles with `DELAY_BETWEEN_SUBSEQUENT_REQUESTS` seconds unless partial writes are triggered (`fsapi.py:193`).
-- After all batches finish, `graph.end_iteration()` persists iteration metrics (counts, duration) in the `LOG` table and commits the in-memory SQLite state (`graph_db_impl.py:111`). The `starting_iter` pointer is advanced so restarts resume at the next hop.
+- After all batches finish, `graph.end_iteration()` persists iteration metrics (counts, duration) in the `LOG` table and commits the on-disk SQLite state (`fscrawler/model/graph_db_impl.py:103`). The `starting_iter` pointer is advanced so restarts resume at the next hop.
 
 ## Relationship Resolution Sequence
 ```
@@ -44,12 +44,12 @@ process_relationship_result() updates EDGE.type (`fsapi.py:71`).
 GraphDbImpl.update_relationship() writes final type and commits via end_relationship_resolution().
 ```
 - Resolution reuses the same asyncio loop, throttled separately (`DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS`).
-- `GraphDbImpl.end_relationship_resolution()` logs the count and duration for post-run diagnostics (`graph_db_impl.py:125`).
+- `GraphDbImpl.end_relationship_resolution()` logs the count and duration for post-run diagnostics (`fscrawler/model/graph_db_impl.py:112`).
 
 ## Key Observations for Refactor
-- Both the frontier and processing queues are transient in SQLite memory; durability depends on the eventual `close()` dump to disk (`graph_db_impl.py:144`).
-- Iteration restarts load prior state from the on-disk `.db`, then rename it to `.bak`, meaning a crash mid-run loses current progress (`graph_db_impl.py:167`).
-- Rate limiting is hard-coded and global, with no adaptive feedback beyond fixed sleeps (`fsapi.py:186`).
+- The frontier, processing, and graph tables now live in an on-disk SQLite database opened in WAL mode (`fscrawler/model/graph_db_impl.py:20`), so crawls persist across restarts without the `.bak` shuffle previously required.
+- `GraphDbImpl.starting_iter` is derived from committed `LOG` rows, allowing resume at the next hop even after abrupt shutdowns (`fscrawler/model/graph_db_impl.py:285`).
+- Rate limiting is still hard-coded and global, with no adaptive feedback beyond fixed sleeps (`fsapi.py:186`).
 
 ## Offline Baseline Metrics
 - `tools/offline_baseline.py` patches the crawler to run against canned FamilySearch responses so we can profile without network access or credentials. The probe performs one iteration starting from seed `P0` and captures timings plus memory via `tracemalloc`.
