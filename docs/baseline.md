@@ -7,27 +7,27 @@ relationship-resolution phase.
 
 ## Crawl Entry Points
 - `crawler.crawl` seeds credentials, output paths, and logging, then instantiates `FamilySearchAPI` and `GraphDbImpl` (`fscrawler/crawler.py:16`).
-- Startup seeds (`--individuals` or `FamilySearchAPI.get_default_starting_id`) are inserted into the frontier via `GraphDbImpl.add_to_frontier` (`fscrawler/model/graph_db_impl.py:66`).
+- Startup seeds (`--individuals` or `FamilySearchAPI.get_default_starting_id`) are inserted into the frontier via `GraphDbImpl.add_to_frontier` (`fscrawler/model/graph_db_impl.py:73`).
 - An asyncio event loop is created, and `FamilySearchAPI.iterate` is invoked for each hop (`crawler.py:41`). After the loop completes, `FamilySearchAPI.resolve_relationships` is called to classify parent-child edges.
 
 ## Iteration Data Flow
 ```
 frontend seeds
   ↓
-FRONTIER_VERTEX (GraphDbImpl)
+FRONTIER_QUEUE (GraphDbImpl)
   ↓ start_iteration()
-PROCESSING (GraphDbImpl)
+PROCESSING_QUEUE (GraphDbImpl)
   ↓ get_ids_to_process()
 FamilySearchAPI.iterate()
   ├─ partition_requests() splits PROCESSING ids into async batches (`fsapi.py:120`).
   ├─ Session.get_urla() issues batched `/platform/tree/persons` calls.
       └─ process_persons_result():
-       • add_individual() inserts into VERTEX and removes id from PROCESSING (`fscrawler/model/graph_db_impl.py:71`).
-       • add_parent_child_relationship() records EDGE rows and pushes unseen ids back onto FRONTIER_VERTEX (`fscrawler/model/graph_db_impl.py:82`).
+       • add_individual() inserts into VERTEX and removes ids from the processing queue (`fscrawler/model/graph_db_impl.py:84`).
+       • add_parent_child_relationship() records EDGE rows and pushes unseen ids back into the frontier queue (`fscrawler/model/graph_db_impl.py:98`).
 ```
 - Each request batch is awaited with `asyncio.gather`; exceptions bubble out to halt the iteration (`fsapi.py:185`).
 - Between batches the crawler throttles with `DELAY_BETWEEN_SUBSEQUENT_REQUESTS` seconds unless partial writes are triggered (`fsapi.py:193`).
-- After all batches finish, `graph.end_iteration()` persists iteration metrics (counts, duration) in the `LOG` table and commits the on-disk SQLite state (`fscrawler/model/graph_db_impl.py:103`). The `starting_iter` pointer is advanced so restarts resume at the next hop.
+- After all batches finish, `graph.end_iteration()` persists iteration metrics (counts, duration) in the `LOG` table and commits the on-disk SQLite state (`fscrawler/model/graph_db_impl.py:126`). The `starting_iter` pointer is advanced so restarts resume at the next hop.
 
 ## Relationship Resolution Sequence
 ```
@@ -44,11 +44,12 @@ process_relationship_result() updates EDGE.type (`fsapi.py:71`).
 GraphDbImpl.update_relationship() writes final type and commits via end_relationship_resolution().
 ```
 - Resolution reuses the same asyncio loop, throttled separately (`DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS`).
-- `GraphDbImpl.end_relationship_resolution()` logs the count and duration for post-run diagnostics (`fscrawler/model/graph_db_impl.py:112`).
+- `GraphDbImpl.end_relationship_resolution()` logs the count and duration for post-run diagnostics (`fscrawler/model/graph_db_impl.py:139`).
 
 ## Key Observations for Refactor
-- The frontier, processing, and graph tables now live in an on-disk SQLite database opened in WAL mode (`fscrawler/model/graph_db_impl.py:20`), so crawls persist across restarts without the `.bak` shuffle previously required.
-- `GraphDbImpl.starting_iter` is derived from committed `LOG` rows, allowing resume at the next hop even after abrupt shutdowns (`fscrawler/model/graph_db_impl.py:285`).
+- Frontier and processing state now live in FIFO queue tables on the on-disk SQLite database opened in WAL mode (`fscrawler/model/graph_db_impl.py:20`), so crawls persist across restarts and retain ordering without the `.bak` shuffle previously required.
+- `GraphDbImpl.starting_iter` is derived from committed `LOG` rows, allowing resume at the next hop even after abrupt shutdowns (`fscrawler/model/graph_db_impl.py:319`).
+- Queue helpers like `GraphDbImpl.peek_frontier` (`fscrawler/model/graph_db_impl.py:222`) and `GraphDbImpl.seed_frontier_if_empty` (`fscrawler/model/graph_db_impl.py:232`) expose ordered snapshots and safe seeding for operational tooling.
 - Rate limiting is still hard-coded and global, with no adaptive feedback beyond fixed sleeps (`fsapi.py:186`).
 
 ## Offline Baseline Metrics

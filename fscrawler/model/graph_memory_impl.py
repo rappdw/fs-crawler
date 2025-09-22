@@ -1,4 +1,5 @@
-from typing import Dict, Set, Union, Generator, Tuple
+from collections import deque
+from typing import Deque, Dict, Iterable, Set, Union, Generator, Tuple
 
 from . import RelationshipType
 from .graph import Graph, Relationship, RelationshipCounts
@@ -30,12 +31,14 @@ class GraphMemoryImpl(Graph):
     def __init__(self):
         self.individuals: Dict[str, Union[Individual, None]] = dict()
         self.relationships: Dict[Relationship, Union[str, None]] = dict()  # maps (src, dest) to rel_id
-        self.frontier: Set[str] = set()
+        self.frontier_queue: Deque[str] = deque()
+        self.frontier_lookup: Set[str] = set()
         self.visited: Set[str] = set()
-        self.processing: Set[str] = set()
+        self.processing_queue: Deque[str] = deque()
+        self.processing_lookup: Set[str] = set()
 
     def get_processing_count(self):
-        return len(self.processing)
+        return len(self.processing_queue)
 
     def get_individuals(self) -> Generator[Individual, None, None]:
         for individual in self.individuals.values():
@@ -46,8 +49,30 @@ class GraphMemoryImpl(Graph):
         return fs_id in self.individuals or fs_id in self.visited
 
     def get_frontier(self) -> Generator[str, None, None]:
-        for fs_id in self.frontier:
+        for fs_id in self.frontier_queue:
             yield fs_id
+
+    def peek_frontier(self, limit: int = 1) -> Tuple[str, ...]:
+        if limit <= 0:
+            return tuple()
+        slice_end = min(limit, len(self.frontier_queue))
+        items = []
+        for idx, fs_id in enumerate(self.frontier_queue):
+            if idx >= slice_end:
+                break
+            items.append(fs_id)
+        return tuple(items)
+
+    def seed_frontier_if_empty(self, fs_ids: Iterable[str]) -> int:
+        if self.frontier_queue or self.processing_queue:
+            return 0
+        inserted = 0
+        for fs_id in fs_ids:
+            if fs_id and fs_id not in self.visited and fs_id not in self.frontier_lookup:
+                self.frontier_queue.append(fs_id)
+                self.frontier_lookup.add(fs_id)
+                inserted += 1
+        return inserted
 
     def get_relationships(self) -> Generator[Tuple[Relationship, str], None, None]:
         for rel, rel_id in self.relationships.items():
@@ -58,13 +83,19 @@ class GraphMemoryImpl(Graph):
         self.visited.add(fs_id)
 
     def add_to_frontier(self, fs_id: str):
-        if fs_id not in self.visited and \
-                fs_id not in self.processing:
-            self.frontier.add(fs_id)
+        if fs_id and fs_id not in self.visited and fs_id not in self.processing_lookup and fs_id not in self.frontier_lookup:
+            self.frontier_queue.append(fs_id)
+            self.frontier_lookup.add(fs_id)
 
     def add_individual(self, person: Individual):
         if person.fid not in self.visited and person.fid not in self.individuals:
             self.individuals[person.fid] = person
+        if person.fid in self.processing_lookup:
+            self.processing_lookup.discard(person.fid)
+            try:
+                self.processing_queue.remove(person.fid)
+            except ValueError:
+                pass
 
     def add_parent_child_relationship(self, child, parent, rel_id):
         self.add_to_frontier(child)
@@ -73,18 +104,29 @@ class GraphMemoryImpl(Graph):
             self.relationships[(child, parent)] = rel_id
 
     def start_iteration(self):
-        # remove from the frontier anything that has been processed in this iteration
-        self.frontier -= self.individuals.keys()
+        # remove already processed individuals from the frontier queue
+        if self.individuals:
+            processed = set(self.individuals.keys())
+            if processed:
+                retained = deque()
+                retained_lookup: Set[str] = set()
+                while self.frontier_queue:
+                    fs_id = self.frontier_queue.popleft()
+                    if fs_id not in processed:
+                        retained.append(fs_id)
+                        retained_lookup.add(fs_id)
+                self.frontier_queue = retained
+                self.frontier_lookup = retained_lookup
 
-        # update our visited sets with what has been processed
-        self.visited |= self.individuals.keys()
-
-        # reset the collections that are used to process
+        # mark processed individuals as visited and reset the in-memory individuals map
+        self.visited |= set(self.individuals.keys())
         self.individuals = dict()
 
-        # tee up the next iteration
-        self.processing = self.frontier
-        self.frontier = set()
+        # transfer the frontier queue into processing order
+        self.processing_queue = deque(self.frontier_queue)
+        self.processing_lookup = set(self.frontier_lookup)
+        self.frontier_queue = deque()
+        self.frontier_lookup = set()
 
     def get_graph_stats(self) -> str:
         rel_counts = self.get_relationship_count()
@@ -93,15 +135,15 @@ class GraphMemoryImpl(Graph):
                f"{rel_counts.frontier} frontier edges"
 
     def get_ids_to_process(self) -> Generator[str, None, None]:
-        for fs_id in self.processing:
-            if fs_id and fs_id not in self.visited and fs_id not in self.individuals.keys():
+        for fs_id in list(self.processing_queue):
+            if fs_id and fs_id not in self.visited:
                 yield fs_id
 
     def get_individual_count(self):
         return len(self.individuals) + len(self.visited)
 
     def get_frontier_count(self):
-        return len(self.frontier)
+        return len(self.frontier_queue)
 
     def get_relationship_count(self) -> RelationshipCounts:
         rel_count = 0

@@ -56,6 +56,12 @@ class GraphTest(Graph):
     def get_frontier(self) -> Generator[str, None, None]:
         pass
 
+    def peek_frontier(self, limit: int = 1) -> Tuple[str, ...]:
+        pass
+
+    def seed_frontier_if_empty(self, fs_ids):
+        pass
+
     def get_ids_to_process(self) -> Generator[str, None, None]:
         pass
 

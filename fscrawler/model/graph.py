@@ -168,6 +168,16 @@ class Graph(ABC):
         ...
 
     @abstractmethod
+    def peek_frontier(self, limit: int = 1) -> Tuple[str, ...]:
+        """Return up to ``limit`` frontier ids without removing them."""
+        ...
+
+    @abstractmethod
+    def seed_frontier_if_empty(self, fs_ids: Iterable[str]) -> int:
+        """Seed the frontier with ``fs_ids`` only if both frontier and processing queues are empty."""
+        ...
+
+    @abstractmethod
     def get_ids_to_process(self) -> Generator[str, None, None]:
         """
         Returns the set of ids to process for the current iteration

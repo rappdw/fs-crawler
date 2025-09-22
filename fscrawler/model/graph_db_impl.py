@@ -1,11 +1,13 @@
 import sqlite3 as sl
 from pathlib import Path
-from typing import Generator, Tuple, Union
+from typing import Generator, Iterable, Tuple, Union
 
 from . import Graph, Relationship, RelationshipCounts, RelationshipType, Individual
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
+FRONTIER_TABLE = "FRONTIER_QUEUE"
+PROCESSING_TABLE = "PROCESSING_QUEUE"
 
 class GraphDbImpl(Graph):
     """
@@ -29,7 +31,7 @@ class GraphDbImpl(Graph):
 
     def get_processing_count(self):
         with self.conn:
-            cursor = self.conn.execute("SELECT COUNT(*) FROM PROCESSING")
+            cursor = self.conn.execute(f"SELECT COUNT(*) FROM {PROCESSING_TABLE}")
             return cursor.fetchone()[0]
 
     def get_individuals(self) -> Generator[Individual, None, None]:
@@ -40,17 +42,22 @@ class GraphDbImpl(Graph):
             for row in cursor:
                 yield Individual(**row)
 
-    def _is_individual_in_(self, fs_id: str, table: str) -> bool:
+    def _is_individual_in_(self, fs_id: str, table: str, column: str = "id") -> bool:
         with self.conn:
-            cursor = self.conn.execute(f"SELECT COUNT(*) FROM {table} WHERE id=?", [fs_id])
-            return cursor.fetchone()[0] == 1
+            cursor = self.conn.execute(
+                f"SELECT 1 FROM {table} WHERE {column}=? LIMIT 1",
+                (fs_id,)
+            )
+            return cursor.fetchone() is not None
 
     def is_individual_in_graph(self, fs_id: str) -> bool:
         return self._is_individual_in_(fs_id, "VERTEX")
 
     def get_frontier(self) -> Generator[str, None, None]:
         with self.conn:
-            cursor = self.conn.execute("SELECT id FROM FRONTIER_VERTEX")
+            cursor = self.conn.execute(
+                f"SELECT fs_id FROM {FRONTIER_TABLE} ORDER BY seq"
+            )
             for row in cursor:
                 yield row[0]
 
@@ -64,9 +71,15 @@ class GraphDbImpl(Graph):
         raise Exception("Shouldn't be called")
 
     def add_to_frontier(self, fs_id: str):
-        if not self.is_individual_in_graph(fs_id) and not self._is_individual_in_(fs_id, "PROCESSING"):
-            with self.conn:
-                self.conn.execute(f"INSERT OR IGNORE INTO FRONTIER_VERTEX (id) values('{fs_id}')")
+        if self.is_individual_in_graph(fs_id):
+            return
+        if self._is_individual_in_(fs_id, PROCESSING_TABLE, "fs_id"):
+            return
+        with self.conn:
+            self.conn.execute(
+                f"INSERT OR IGNORE INTO {FRONTIER_TABLE} (fs_id) VALUES (?)",
+                (fs_id,)
+            )
 
     def add_individual(self, person: Individual):
         if not self.is_individual_in_graph(person.fid):
@@ -75,7 +88,10 @@ class GraphDbImpl(Graph):
                 with self.conn:
                     self.conn.execute(query, (person.fid, person.gender.value, person.name.surname, person.name.given,
                                               person.iteration, person.lifespan))
-                    self.conn.execute(f"DELETE FROM PROCESSING WHERE id='{person.fid}'")
+                    self.conn.execute(
+                        f"DELETE FROM {PROCESSING_TABLE} WHERE fs_id=?",
+                        (person.fid,)
+                    )
             except sl.OperationalError as e:
                 raise(Exception(f"Error with query: '{query}'", e))
 
@@ -83,18 +99,29 @@ class GraphDbImpl(Graph):
         self.add_to_frontier(child)
         self.add_to_frontier(parent)
         with self.conn:
-            cursor = self.conn.execute(f"SELECT COUNT(*) FROM EDGE WHERE source='{child}' AND destination='{parent}'")
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM EDGE WHERE source=? AND destination=?",
+                (child, parent)
+            )
             if cursor.fetchone()[0] == 0:
-                self.conn.execute(f"""
-                INSERT INTO EDGE (source, destination, type, id) 
-                values('{child}', '{parent}', '{RelationshipType.UNTYPED_PARENT.value}', '{rel_id}')
-                """)
+                self.conn.execute(
+                    "INSERT INTO EDGE (source, destination, type, id) VALUES (?, ?, ?, ?)",
+                    (
+                        child,
+                        parent,
+                        RelationshipType.UNTYPED_PARENT.value,
+                        rel_id,
+                    ),
+                )
 
     def start_iteration(self):
         with self.conn:
-            self.conn.execute("INSERT INTO PROCESSING SELECT * FROM FRONTIER_VERTEX")
-            # noinspection SqlWithoutWhere
-            self.conn.execute("DELETE FROM FRONTIER_VERTEX")
+            self.conn.execute(f"DELETE FROM {PROCESSING_TABLE}")
+            self.conn.execute(
+                f"INSERT INTO {PROCESSING_TABLE} (fs_id) "
+                f"SELECT fs_id FROM {FRONTIER_TABLE} ORDER BY seq"
+            )
+            self.conn.execute(f"DELETE FROM {FRONTIER_TABLE}")
 
     def end_iteration(self, iteration: int, duration: float):
         rel_counts = self.get_relationship_count()
@@ -125,7 +152,9 @@ class GraphDbImpl(Graph):
 
     def get_ids_to_process(self) -> Generator[str, None, None]:
         with self.conn:
-            cursor = self.conn.execute("SELECT * FROM PROCESSING")
+            cursor = self.conn.execute(
+                f"SELECT fs_id FROM {PROCESSING_TABLE} ORDER BY seq"
+            )
             for row in cursor:
                 yield row[0]
 
@@ -138,7 +167,7 @@ class GraphDbImpl(Graph):
         return self._get_count("VERTEX")
 
     def get_frontier_count(self):
-        return self._get_count("FRONTIER_VERTEX")
+        return self._get_count(FRONTIER_TABLE)
 
     def get_relationship_count(self) -> RelationshipCounts:
         with self.conn:
@@ -190,20 +219,60 @@ class GraphDbImpl(Graph):
             """)
             return cursor.fetchone()[0]
 
+    def peek_frontier(self, limit: int = 1) -> Tuple[str, ...]:
+        if limit <= 0:
+            return tuple()
+        with self.conn:
+            cursor = self.conn.execute(
+                f"SELECT fs_id FROM {FRONTIER_TABLE} ORDER BY seq LIMIT ?",
+                (limit,)
+            )
+            return tuple(row[0] for row in cursor)
+
+    def seed_frontier_if_empty(self, fs_ids: Iterable[str]) -> int:
+        inserted = 0
+        with self.conn:
+            frontier_count = self.conn.execute(
+                f"SELECT COUNT(*) FROM {FRONTIER_TABLE}"
+            ).fetchone()[0]
+            processing_count = self.conn.execute(
+                f"SELECT COUNT(*) FROM {PROCESSING_TABLE}"
+            ).fetchone()[0]
+            if frontier_count or processing_count:
+                return 0
+            for fs_id in fs_ids:
+                if not fs_id:
+                    continue
+                in_graph = self.conn.execute(
+                    "SELECT 1 FROM VERTEX WHERE id=? LIMIT 1",
+                    (fs_id,)
+                ).fetchone()
+                if in_graph:
+                    continue
+                cursor = self.conn.execute(
+                    f"INSERT OR IGNORE INTO {FRONTIER_TABLE} (fs_id) VALUES (?)",
+                    (fs_id,)
+                )
+                if cursor.rowcount == 1:
+                    inserted += 1
+        return inserted
+
     def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
         if isinstance(relationship_id, Tuple):
-            query = f"""
-            UPDATE EDGE SET type = '{relationship_type.value}'
-            WHERE source = '{relationship_id[0]}' AND destination='{relationship_id[1]}'
+            query = """
+                UPDATE EDGE SET type = ?
+                WHERE source = ? AND destination = ?
             """
+            params = (relationship_type.value, relationship_id[0], relationship_id[1])
         else:
-            query = f"""
-            UPDATE EDGE SET type = '{relationship_type.value}'
-            WHERE id = '{relationship_id}'
+            query = """
+                UPDATE EDGE SET type = ?
+                WHERE id = ?
             """
+            params = (relationship_type.value, relationship_id)
         with self.conn:
             try:
-                self.conn.execute(query)
+                self.conn.execute(query, params)
             except sl.OperationalError as e:
                 raise(Exception(f"Error with query: '{query}'", e))
 
@@ -225,54 +294,19 @@ class GraphDbImpl(Graph):
 
     def _ensure_schema(self):
         current_version = self._get_user_version()
-        with self.conn:
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS VERTEX (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY,
-                    color INTEGER,
-                    surname STRING,
-                    given_name STRING,
-                    iteration INTEGER,
-                    lifespan STRING
-                )
-            """)
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS EDGE (
-                    source VARCHAR(8),
-                    destination VARCHAR(8),
-                    type STRING,
-                    id VARCHAR(8)
-                )
-            """)
-            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_SOURCE_IDX ON EDGE(source)")
-            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_DESTINATION_IDX ON EDGE(destination)")
-            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_TYPE_IDX ON EDGE(type)")
-            self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)")
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS FRONTIER_VERTEX (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY
-                )
-            """)
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS PROCESSING (
-                    id VARCHAR(8) NOT NULL PRIMARY KEY
-                )
-            """)
-            self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS LOG (
-                    iteration INTEGER,
-                    duration FLOAT,
-                    vertices INTEGER,
-                    frontier INTEGER,
-                    edges INTEGER,
-                    spanning_edges INTEGER,
-                    frontier_edges INTEGER
-                )
-            """)
-        if current_version == 0:
-            self._set_user_version(CURRENT_SCHEMA_VERSION)
-        elif current_version > CURRENT_SCHEMA_VERSION:
+        if current_version > CURRENT_SCHEMA_VERSION:
             raise RuntimeError(f"Unsupported schema version {current_version}")
+        with self.conn:
+            self._create_base_tables()
+            if current_version == 0:
+                self._create_queue_tables()
+            elif current_version == 1:
+                self._create_queue_tables()
+                self._migrate_v1_to_v2()
+            else:
+                self._create_queue_tables()
+        if current_version in {0, 1}:
+            self._set_user_version(CURRENT_SCHEMA_VERSION)
 
     def _get_user_version(self) -> int:
         cursor = self.conn.execute("PRAGMA user_version")
@@ -287,3 +321,71 @@ class GraphDbImpl(Graph):
             cursor = self.conn.execute("SELECT MAX(iteration) FROM LOG WHERE iteration IS NOT NULL")
             result = cursor.fetchone()[0]
         return (result + 1) if result is not None else 0
+
+    def _create_base_tables(self) -> None:
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS VERTEX (
+                id VARCHAR(8) NOT NULL PRIMARY KEY,
+                color INTEGER,
+                surname STRING,
+                given_name STRING,
+                iteration INTEGER,
+                lifespan STRING
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS EDGE (
+                source VARCHAR(8),
+                destination VARCHAR(8),
+                type STRING,
+                id VARCHAR(8)
+            )
+        """)
+        self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_SOURCE_IDX ON EDGE(source)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_DESTINATION_IDX ON EDGE(destination)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_TYPE_IDX ON EDGE(type)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)")
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS LOG (
+                iteration INTEGER,
+                duration FLOAT,
+                vertices INTEGER,
+                frontier INTEGER,
+                edges INTEGER,
+                spanning_edges INTEGER,
+                frontier_edges INTEGER
+            )
+        """)
+
+    def _create_queue_tables(self) -> None:
+        self.conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {FRONTIER_TABLE} (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                fs_id VARCHAR(8) NOT NULL UNIQUE
+            )
+        """)
+        self.conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {PROCESSING_TABLE} (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                fs_id VARCHAR(8) NOT NULL UNIQUE
+            )
+        """)
+        self.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {FRONTIER_TABLE}_FS_ID_IDX ON {FRONTIER_TABLE}(fs_id)"
+        )
+        self.conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {PROCESSING_TABLE}_FS_ID_IDX ON {PROCESSING_TABLE}(fs_id)"
+        )
+
+    def _migrate_v1_to_v2(self) -> None:
+        # Preserve legacy frontier/processing contents while moving to queue-backed tables.
+        self.conn.execute(f"""
+            INSERT OR IGNORE INTO {FRONTIER_TABLE} (fs_id)
+            SELECT id FROM FRONTIER_VERTEX ORDER BY rowid
+        """)
+        self.conn.execute(f"""
+            INSERT OR IGNORE INTO {PROCESSING_TABLE} (fs_id)
+            SELECT id FROM PROCESSING ORDER BY rowid
+        """)
+        self.conn.execute("DROP TABLE IF EXISTS FRONTIER_VERTEX")
+        self.conn.execute("DROP TABLE IF EXISTS PROCESSING")
