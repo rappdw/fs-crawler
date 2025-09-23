@@ -14,6 +14,7 @@ from .session import Session
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph import Graph
 from fscrawler.model.relationship_types import RelationshipType
+from fscrawler.util.telemetry import TelemetryEmitter
 
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
@@ -85,9 +86,11 @@ class FamilySearchAPI:
 
     def __init__(self, username, password, verbose=False, timeout=60,
                  throttle: Optional[ThrottleConfig] = None,
-                 control: Optional[object] = None):
+                 control: Optional[object] = None,
+                 telemetry: Optional[TelemetryEmitter] = None):
         self.throttle = throttle or DEFAULT_THROTTLE
         self.control = control
+        self.telemetry = telemetry
         self.session = Session(
             username,
             password,
@@ -119,6 +122,10 @@ class FamilySearchAPI:
         if hasattr(self.control, "should_stop") and self.control.should_stop():
             reason = getattr(self.control, "stop_reason", None)
             raise self._stop_exc(reason or "Stop requested")
+
+    def _emit(self, event: str, **fields):
+        if self.telemetry:
+            self.telemetry.emit(event, **fields)
 
     @staticmethod
     def get_relationship_type(rel, field, default):
@@ -214,11 +221,15 @@ class FamilySearchAPI:
             1,
             self.throttle.max_concurrent_relationship_requests,
         )
+        batch_index = 0
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
             self._enforce_control(graph, None)
             coroutines = [self.get_relationships_from_id(request, graph) for request in requests]
+            batch_index += 1
+            batch_start = time.time()
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
+            batch_duration = time.time() - batch_start
             for result in results:
                 if result:
                     # no return from get_relationships_from_id, so we have an exception
@@ -233,12 +244,20 @@ class FamilySearchAPI:
             if effective_delay:
                 time.sleep(effective_delay)
             self._enforce_control(graph, None)
+            self._emit(
+                "relationship_batch",
+                batch=batch_index,
+                batch_duration=batch_duration,
+                batch_requests=len([req for req in requests if req]),
+                session_counter=self.session.counter,
+            )
 
     def iterate(self, iteration: int, graph: Graph, loop):
         graph.start_iteration(iteration)
         self._enforce_control(graph, iteration)
 
         start = time.time()
+        iteration_start_counter = self.session.counter
 
         logger.info(f"Starting iteration: {iteration}... ({graph.get_processing_count():,} individuals to process)")
         partitioned_request = partition_requests(
@@ -248,11 +267,16 @@ class FamilySearchAPI:
             max_concurrent_requests=self.throttle.max_concurrent_person_requests,
         )
         iteration_count = 0
+        batch_index = 0
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
             iteration_count += 1
+            batch_index += 1
             coroutines = [self.get_persons_from_ids(request, graph, iteration) for request in requests]
+            batch_start = time.time()
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
+            batch_duration = time.time() - batch_start
+            batch_request_count = sum(len([i for i in request if i]) for request in requests if request)
             for result in results:
                 if result:
                     # no return from get_relationships_from_id, so we have an exception
@@ -272,9 +296,28 @@ class FamilySearchAPI:
                     time.sleep(self.throttle.delay_between_person_batches)
                 self._enforce_control(graph, iteration)
 
+            self._emit(
+                "person_batch",
+                iteration=iteration,
+                batch=batch_index,
+                batch_duration=batch_duration,
+                batch_requests=batch_request_count,
+                frontier=graph.get_frontier_count(),
+                processing=graph.get_processing_count(),
+                session_counter=self.session.counter,
+            )
+
         duration = time.time() - start
         graph.end_iteration(iteration, duration)
         self._enforce_control(graph, iteration)
+        self._emit(
+            "iteration_complete",
+            iteration=iteration,
+            duration=duration,
+            requests=self.session.counter - iteration_start_counter,
+            frontier=graph.get_frontier_count(),
+            processing=graph.get_processing_count(),
+        )
         logger.info(f"\tFinished iteration: {iteration}. Duration: {duration:.2f} s. "
                     f"Graph stats: {graph.get_graph_stats()}")
 
@@ -286,9 +329,21 @@ class FamilySearchAPI:
 
         if relationship_count > 0:
             logger.info(f"Resolving {relationship_count} relationships")
-            self._resolve_relationships(relationships_to_resolve, relationship_count, graph, loop)
+            self._resolve_relationships(
+                relationships_to_resolve,
+                relationship_count,
+                graph,
+                loop,
+                delay=self.throttle.delay_between_relationship_batches,
+            )
         duration = time.time() - start
         graph.end_relationship_resolution(relationship_count, duration)
         if hasattr(graph, "checkpoint"):
             graph.checkpoint(graph.starting_iter, "relationships")
+        self._emit(
+            "relationships_complete",
+            count=relationship_count,
+            duration=duration,
+            session_counter=self.session.counter,
+        )
         logger.info(f"\tFinished relationship resolution. Duration: {duration:.2f} s.")

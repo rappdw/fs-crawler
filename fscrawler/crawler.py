@@ -19,6 +19,7 @@ import keyring
 from fscrawler.controller import FamilySearchAPI
 from fscrawler.controller.fsapi import ThrottleConfig, DEFAULT_THROTTLE, StopRequested
 from fscrawler.model.graph_db_impl import GraphDbImpl
+from fscrawler.util.telemetry import telemetry_from_args
 
 
 class CrawlControl:
@@ -179,6 +180,8 @@ def parse_run_args(argv):
                         help=f"Maximum backoff delay in seconds [{DEFAULT_THROTTLE.backoff_max_seconds}]")
     parser.add_argument("--pause-file", type=str,
                         help="Path to a control file that can contain 'pause', 'resume', or 'stop'")
+    parser.add_argument("--metrics-file", type=str,
+                        help="Write JSON telemetry events to this file (use '-' for stdout)")
     parser.add_argument("-?", "--help", action="help", help="Show this help message and exit")
 
     args = parser.parse_args(argv)
@@ -264,10 +267,19 @@ def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None):
     install_signal_handlers(control, logger)
     start_pause_watcher(getattr(args, "pause_file", None), control, logger)
 
+    telemetry = telemetry_from_args(getattr(args, "metrics_file", None))
+    if telemetry:
+        telemetry.emit(
+            "run_start",
+            resume=resume,
+            outdir=str(args.outdir),
+            basename=args.basename,
+        )
+
     logger.info("Login to FamilySearch...")
     throttle_config = build_throttle_config(args)
     fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout,
-                         throttle=throttle_config, control=control)
+                         throttle=throttle_config, control=control, telemetry=telemetry)
     if not fs.is_logged_in():
         sys.exit(2)
 
@@ -287,6 +299,13 @@ def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None):
         config_snapshot["cli_individuals"] = args.individuals
     if getattr(args, "pause_file", None):
         config_snapshot["pause_file"] = str(args.pause_file)
+    if getattr(args, "metrics_file", None):
+        config_snapshot["metrics_file"] = str(args.metrics_file)
+    if telemetry:
+        telemetry.emit(
+            "run_config",
+            **config_snapshot,
+        )
     if hasattr(graph, "record_run_configuration"):
         graph.record_run_configuration(config_snapshot)
 
@@ -342,6 +361,14 @@ def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None):
         loop.stop()
         loop.close()
         graph.close(args.gen_sql)
+        if telemetry:
+            telemetry.emit(
+                "run_complete",
+                stop_reason=stop_reason,
+                duration_seconds=duration_seconds,
+                requests=request_count,
+            )
+            telemetry.close()
 
     stats = stats or "unavailable"
 
