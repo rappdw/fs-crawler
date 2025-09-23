@@ -2,11 +2,12 @@ import asyncio
 import logging
 import time
 import traceback
+from dataclasses import dataclass
 
 from collections import namedtuple
 from iteration_utilities import grouper
 from math import ceil
-from typing import Iterable
+from typing import Iterable, Optional
 from urllib.parse import urlparse
 from tqdm import tqdm
 from .session import Session
@@ -17,21 +18,27 @@ from fscrawler.model.relationship_types import RelationshipType
 GET_PERSONS = "/platform/tree/persons/.json?pids="
 RESOLVE_RELATIONSHIP = "/platform/tree/child-and-parents-relationships/"
 
-# these constants are used to govern the load placed on the FS API
-# max persons is subject to change: see https://www.familysearch.org/developers/docs/api/tree/Persons_resource
+# these defaults are used to govern the load placed on the FS API. They can be overridden at runtime.
 
-# The maximum number of persons that will be in a get request for person information
-MAX_PERSONS = 200
-# the maximum number of concurrent requests that will be issued
-MAX_CONCURRENT_PERSON_REQUESTS = 40
-# the maximum number of concurrent requests that will be issued
-MAX_CONCURRENT_RELATIONSHIP_REQUESTS = 200
-# the number of seconds to delay before issuing a subsequent block of requests
-DELAY_BETWEEN_SUBSEQUENT_REQUESTS = 2
-# the number of seconds to delay before issuing a subsequent block of requests
-DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS = 2
+
+@dataclass(frozen=True)
+class ThrottleConfig:
+    person_batch_size: int = 200
+    max_concurrent_person_requests: int = 40
+    max_concurrent_relationship_requests: int = 200
+    delay_between_person_batches: float = 2.0
+    delay_between_relationship_batches: float = 2.0
+    requests_per_second: float = 6.0
+    max_retries: int = 5
+    backoff_base_seconds: float = 1.0
+    backoff_multiplier: float = 2.0
+    backoff_max_seconds: float = 60.0
+
+
 # If there are more partitions than this, partial iterations will be written for each chunk of half of this value
 PARTIAL_WRITE_THRESHOLD = 20
+
+DEFAULT_THROTTLE = ThrottleConfig()
 
 logger = logging.getLogger(__name__)
 # noinspection HttpUrlsUsage
@@ -41,8 +48,8 @@ PartitionedRequest = namedtuple("PartitionedRequest", "number_of_partitions iter
 
 
 def partition_requests(ids: Iterable, count: int,
-                       max_ids_per_request: int = MAX_PERSONS,
-                       max_concurrent_requests: int = MAX_CONCURRENT_PERSON_REQUESTS) -> PartitionedRequest:
+                       max_ids_per_request: int = DEFAULT_THROTTLE.person_batch_size,
+                       max_concurrent_requests: int = DEFAULT_THROTTLE.max_concurrent_person_requests) -> PartitionedRequest:
     """
     Based on the maximum number of ids in a request, and the maximum number of
     concurrent requests allowed, split a 1d array into a 2d array of arrays where
@@ -71,8 +78,19 @@ def partition_requests(ids: Iterable, count: int,
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, timeout=60):
-        self.session = Session(username, password, verbose, timeout)
+    def __init__(self, username, password, verbose=False, timeout=60, throttle: Optional[ThrottleConfig] = None):
+        self.throttle = throttle or DEFAULT_THROTTLE
+        self.session = Session(
+            username,
+            password,
+            verbose,
+            timeout,
+            requests_per_second=self.throttle.requests_per_second,
+            max_retries=self.throttle.max_retries,
+            backoff_base_seconds=self.throttle.backoff_base_seconds,
+            backoff_multiplier=self.throttle.backoff_multiplier,
+            backoff_max_seconds=self.throttle.backoff_max_seconds,
+        )
         self.rel_set = set()
 
     def get_counter(self):
@@ -161,7 +179,7 @@ class FamilySearchAPI:
                     FamilySearchAPI._process_parent_child("parent2", relationship, graph, child, rel_id)
 
     def _resolve_relationships(self, relationships: Iterable[str], relationship_count: int, graph: Graph, loop,
-                               delay=DELAY_BETWEEN_SUBSEQUENT_RELATIONSHIP_REQUESTS):
+                               delay: Optional[float] = None):
         """
         Resolve relationship types in the graph
 
@@ -172,8 +190,12 @@ class FamilySearchAPI:
             loop: asyncio event loop
             delay: delay between successive concurrent get_persons requests
         """
-        partitioned_request = partition_requests(relationships, relationship_count, 1,
-                                                 MAX_CONCURRENT_RELATIONSHIP_REQUESTS)
+        partitioned_request = partition_requests(
+            relationships,
+            relationship_count,
+            1,
+            self.throttle.max_concurrent_relationship_requests,
+        )
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
             coroutines = [self.get_relationships_from_id(request, graph) for request in requests]
@@ -188,8 +210,9 @@ class FamilySearchAPI:
                     else:
                         logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
                     return
-            if delay:
-                time.sleep(delay)
+            effective_delay = self.throttle.delay_between_relationship_batches if delay is None else delay
+            if effective_delay:
+                time.sleep(effective_delay)
 
     def iterate(self, iteration: int, graph: Graph, loop):
         graph.start_iteration(iteration)
@@ -197,7 +220,12 @@ class FamilySearchAPI:
         start = time.time()
 
         logger.info(f"Starting iteration: {iteration}... ({graph.get_processing_count():,} individuals to process)")
-        partitioned_request = partition_requests(graph.get_ids_to_process(), graph.get_processing_count())
+        partitioned_request = partition_requests(
+            graph.get_ids_to_process(),
+            graph.get_processing_count(),
+            max_ids_per_request=self.throttle.person_batch_size,
+            max_concurrent_requests=self.throttle.max_concurrent_person_requests,
+        )
         iteration_count = 0
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
@@ -218,7 +246,8 @@ class FamilySearchAPI:
                     graph.checkpoint(iteration, "partial-write")
                 iteration_count = 0
             else:
-                time.sleep(DELAY_BETWEEN_SUBSEQUENT_REQUESTS)
+                if self.throttle.delay_between_person_batches:
+                    time.sleep(self.throttle.delay_between_person_batches)
 
         duration = time.time() - start
         graph.end_iteration(iteration, duration)

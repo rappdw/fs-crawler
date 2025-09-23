@@ -1,6 +1,8 @@
+import asyncio
 import sys
 import logging
 import time
+import threading
 
 import httpx as requests
 
@@ -10,6 +12,7 @@ BASE_URL = 'https://www.familysearch.org:443'
 CURRENT_USER = "/platform/users/current.json"
 FSSESSIONID = "fssessionid"
 CONTINUE = object()
+RETRY = object()
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +24,21 @@ class Session:
         :param timeout: time before retry a request
     """
 
-    def __init__(self, username, password, verbose=False, timeout=15):
+    def __init__(self, username, password, verbose=False, timeout=15,
+                 requests_per_second: float = 0.0,
+                 max_retries: int = 5,
+                 backoff_base_seconds: float = 1.0,
+                 backoff_multiplier: float = 2.0,
+                 backoff_max_seconds: float = 60.0):
         self.username = username
         self.password = password
         self.verbose = verbose
         self.timeout = timeout
+        self.max_retries = max(0, max_retries)
+        self.backoff_base_seconds = max(backoff_base_seconds, 0.0)
+        self.backoff_multiplier = max(backoff_multiplier, 1.0)
+        self.backoff_max_seconds = max(backoff_max_seconds, 0.0)
+        self.rate_limiter = RateLimiter(requests_per_second) if requests_per_second > 0 else None
         self.fid = self.lang = self.display_name = None
         self.counter = 0
         self.client = None
@@ -109,44 +122,111 @@ class Session:
     def get_url(self, url):
         """ retrieve JSON structure from a FamilySearch URL """
         self.counter += 1
+        attempt = 0
         while True:
+            if self.rate_limiter:
+                self.rate_limiter.wait()
             self.write_log("Getting: " + url)
             r = self.client.get(url)
-            result = self._process_response(r)
-            if result == CONTINUE:
+            signal, payload = self._process_response(r)
+            if signal is CONTINUE:
+                attempt = 0
                 continue
-            return result
+            if signal is RETRY:
+                if attempt >= self.max_retries:
+                    logger.warning(f"Exceeded retry attempts for {url}")
+                    return {'error': r}
+                delay = self._compute_backoff(attempt)
+                attempt += 1
+                time.sleep(delay)
+                continue
+            return payload
 
     async def get_urla(self, url):
         """ asynchronously retrieve JSON structure from a FamilySearch URL """
         self.counter += 1
+        attempt = 0
         async with requests.AsyncClient(base_url=BASE_URL,
                                         cookies={FSSESSIONID: self.fssessionid},
                                         timeout=self.timeout) as client:
             while True:
+                if self.rate_limiter:
+                    await self.rate_limiter.wait_async()
                 self.write_log("Getting: " + url)
                 r = await client.get(url)
-                result = self._process_response(r)
-                if result == CONTINUE:
+                signal, payload = self._process_response(r)
+                if signal is CONTINUE:
+                    attempt = 0
                     continue
-                return result
+                if signal is RETRY:
+                    if attempt >= self.max_retries:
+                        logger.warning(f"Exceeded retry attempts for {url}")
+                        return {'error': r}
+                    delay = self._compute_backoff(attempt)
+                    attempt += 1
+                    await asyncio.sleep(delay)
+                    continue
+                return payload
 
     def _process_response(self, r):
         if r.status_code == 204:
-            return None
-        if r.status_code in {404, 405, 410, 500}:
+            return None, None
+        if r.status_code in {404, 405, 410}:
             logger.warning(f"WARNING: status: {r.status_code}, url: {r.url}")
-            return {'error': r}
+            return None, {'error': r}
         if r.status_code == 401:
             self.login()
-            return CONTINUE
+            return CONTINUE, None
+        if r.status_code == 429 or r.status_code >= 500:
+            logger.warning(f"Throttled or server error: status {r.status_code}, url: {r.url}")
+            return RETRY, None
         try:
             r.raise_for_status()
         except requests.HTTPError:
             logger.warning(f"HTTPError: status: {r.status_code}, url: {r.url}")
-            return {'error': r}
+            return None, {'error': r}
         try:
-            return r.json()
+            return None, r.json()
         except Exception as e:
             logger.warning(f"WARNING: corrupted file from {r.url}, error: {e}")
-            return {'error': r}
+            return None, {'error': r}
+
+    def _compute_backoff(self, attempt: int) -> float:
+        delay = self.backoff_base_seconds * (self.backoff_multiplier ** max(attempt, 0))
+        if self.backoff_max_seconds > 0:
+            delay = min(delay, self.backoff_max_seconds)
+        return delay
+class RateLimiter:
+    def __init__(self, requests_per_second: float):
+        self.requests_per_second = max(requests_per_second, 0.0)
+        self._interval = 1.0 / self.requests_per_second if self.requests_per_second > 0 else 0.0
+        self._lock = threading.Lock()
+        self._next_allowed = time.monotonic()
+
+    def _compute_delay(self) -> float:
+        with self._lock:
+            now = time.monotonic()
+            if now >= self._next_allowed:
+                self._next_allowed = now + self._interval
+                return 0.0
+            delay = self._next_allowed - now
+            self._next_allowed += self._interval
+            return delay
+
+    async def wait_async(self):
+        if self._interval == 0:
+            return
+        while True:
+            delay = self._compute_delay()
+            if delay <= 0:
+                return
+            await asyncio.sleep(delay)
+
+    def wait(self):
+        if self._interval == 0:
+            return
+        while True:
+            delay = self._compute_delay()
+            if delay <= 0:
+                return
+            time.sleep(delay)

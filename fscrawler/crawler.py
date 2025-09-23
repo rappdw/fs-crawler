@@ -8,12 +8,14 @@ import re
 import signal
 import sys
 import time
+from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
 import keyring
 
 from fscrawler.controller import FamilySearchAPI
+from fscrawler.controller.fsapi import ThrottleConfig, DEFAULT_THROTTLE
 from fscrawler.model.graph_db_impl import GraphDbImpl
 
 RUN_USAGE = "crawl-fs [run] -u username -p password [options]"
@@ -41,6 +43,28 @@ def parse_run_args(argv):
     parser.add_argument("-u", "--username", metavar="<STR>", type=str, help="FamilySearch username")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
                         help="Increase output verbosity [False]")
+    parser.add_argument("--requests-per-second", type=float, dest="requests_per_second",
+                        help=f"Limit outbound HTTP requests per second [{DEFAULT_THROTTLE.requests_per_second}]")
+    parser.add_argument("--person-batch-size", type=int, dest="person_batch_size",
+                        help=f"Maximum person IDs per request [{DEFAULT_THROTTLE.person_batch_size}]")
+    parser.add_argument("--max-concurrent-person-requests", type=int, dest="max_concurrent_person_requests",
+                        help=f"Maximum concurrent person requests [{DEFAULT_THROTTLE.max_concurrent_person_requests}]")
+    parser.add_argument("--max-concurrent-relationship-requests", type=int,
+                        dest="max_concurrent_relationship_requests",
+                        help=f"Maximum concurrent relationship requests [{DEFAULT_THROTTLE.max_concurrent_relationship_requests}]")
+    parser.add_argument("--delay-between-person-batches", type=float, dest="delay_between_person_batches",
+                        help=f"Delay between person request batches in seconds [{DEFAULT_THROTTLE.delay_between_person_batches}]")
+    parser.add_argument("--delay-between-relationship-batches", type=float,
+                        dest="delay_between_relationship_batches",
+                        help=f"Delay between relationship request batches in seconds [{DEFAULT_THROTTLE.delay_between_relationship_batches}]")
+    parser.add_argument("--max-retries", type=int, dest="max_retries",
+                        help=f"Maximum retries on throttled/server errors [{DEFAULT_THROTTLE.max_retries}]")
+    parser.add_argument("--backoff-base", type=float, dest="backoff_base_seconds",
+                        help=f"Initial backoff delay in seconds [{DEFAULT_THROTTLE.backoff_base_seconds}]")
+    parser.add_argument("--backoff-multiplier", type=float, dest="backoff_multiplier",
+                        help=f"Exponential backoff multiplier [{DEFAULT_THROTTLE.backoff_multiplier}]")
+    parser.add_argument("--backoff-max", type=float, dest="backoff_max_seconds",
+                        help=f"Maximum backoff delay in seconds [{DEFAULT_THROTTLE.backoff_max_seconds}]")
     parser.add_argument("-?", "--help", action="help", help="Show this help message and exit")
 
     args = parser.parse_args(argv)
@@ -109,12 +133,22 @@ def write_settings_file(out_dir: Path, basename: str, parser: argparse.ArgumentP
         sys.stderr.write(f"Unable to write {settings_name}: {repr(exc)}")
 
 
+def build_throttle_config(args) -> ThrottleConfig:
+    overrides = {}
+    for field in fields(ThrottleConfig):
+        value = getattr(args, field.name, None)
+        if value is not None:
+            overrides[field.name] = value
+    return ThrottleConfig(**overrides) if overrides else ThrottleConfig()
+
+
 def run_crawl(args, resume: bool):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if args.verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
     logger.info("Login to FamilySearch...")
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout)
+    throttle_config = build_throttle_config(args)
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout, throttle=throttle_config)
     if not fs.is_logged_in():
         sys.exit(2)
 
@@ -131,6 +165,7 @@ def run_crawl(args, resume: bool):
     }
     if args.individuals:
         config_snapshot["cli_individuals"] = args.individuals
+    config_snapshot["throttle"] = asdict(throttle_config)
     if hasattr(graph, "record_run_configuration"):
         graph.record_run_configuration(config_snapshot)
 

@@ -41,7 +41,7 @@ def test_partition_requests():
 @pytest.fixture
 def fs_api(monkeypatch):
     class DummySession:
-        def __init__(self, username, password, verbose=False, timeout=60):
+        def __init__(self, username, password, verbose=False, timeout=60, **_):
             self.counter = 0
             self.logged = True
             self.fid = "P1"
