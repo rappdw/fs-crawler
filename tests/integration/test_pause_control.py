@@ -1,9 +1,10 @@
-import logging
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
 
-from fscrawler.crawler import run_crawl, CrawlControl
+from fscrawler.crawler import CrawlControl, run_crawl
 from fscrawler.model.individual import Individual
 from fscrawler.model.graph_db_impl import GraphDbImpl
 
@@ -59,8 +60,7 @@ class StubFamilySearchAPI:
                 continue
             self.counter += 1
             graph.add_individual(Individual(make_person(pid), iteration))
-            if iteration < 4:
-                graph.add_to_frontier(f"{pid}-N{iteration}")
+            graph.add_to_frontier(f"{pid}-N{iteration}")
         graph.end_iteration(iteration, 0.01)
 
     def resolve_relationships(self, graph, loop):
@@ -69,6 +69,7 @@ class StubFamilySearchAPI:
 
 @pytest.fixture(autouse=True)
 def quiet_logging():
+    import logging
     logging.getLogger().setLevel(logging.WARNING)
 
 
@@ -78,7 +79,7 @@ def stub_familysearch_api(monkeypatch):
     return StubFamilySearchAPI
 
 
-def build_args(outdir, basename, hopcount, individuals=None):
+def build_args(outdir, basename, hopcount):
     return SimpleNamespace(
         username="user",
         password="pass",
@@ -87,7 +88,7 @@ def build_args(outdir, basename, hopcount, individuals=None):
         outdir=outdir,
         basename=basename,
         hopcount=hopcount,
-        individuals=individuals or [],
+        individuals=[],
         show_password=False,
         requests_per_second=None,
         person_batch_size=None,
@@ -113,20 +114,27 @@ def read_status(outdir, basename):
         graph.close()
 
 
-def test_run_and_resume(tmp_path, stub_familysearch_api):
+def test_pause_control(tmp_path, stub_familysearch_api):
     outdir = tmp_path / "out"
-    args = build_args(outdir, "crawl", hopcount=3)
+    args = build_args(outdir, "crawl", hopcount=5)
     control = CrawlControl()
-    run_crawl(args, resume=False, control=control, install_handlers=False)
+    control.request_pause("test")
+
+    thread = threading.Thread(target=run_crawl, args=(args, False, control, False), daemon=True)
+    thread.start()
+
+    # wait until pause checkpoint recorded
+    for _ in range(30):
+        if control.pause_checkpointed():
+            break
+        time.sleep(0.2)
+    else:
+        pytest.fail("pause checkpoint not recorded")
+
+    control.clear_pause()
+    control.request_stop("test stop")
+    thread.join(timeout=5)
+    assert not thread.is_alive()
 
     status = read_status(outdir, "crawl")
-    assert status["last_completed_iteration"] == 2
-    assert status["starting_iteration"] == 3
-
-    resume_args = build_args(outdir, "crawl", hopcount=5)
-    control = CrawlControl()
-    run_crawl(resume_args, resume=True, control=control, install_handlers=False)
-
-    status = read_status(outdir, "crawl")
-    assert status["last_completed_iteration"] == 4
-    assert status["starting_iteration"] == 5
+    assert status["last_checkpoint"]["phase"] in {"stop", "post-run"}

@@ -51,6 +51,10 @@ class CrawlControl:
                 self._pause_checkpointed = False
                 self.pause_reason = None
 
+    def pause_checkpointed(self) -> bool:
+        with self._lock:
+            return self._pause_checkpointed
+
     def should_stop(self) -> bool:
         return self._stop_event.is_set()
 
@@ -259,12 +263,15 @@ def build_throttle_config(args) -> ThrottleConfig:
     return ThrottleConfig(**overrides) if overrides else ThrottleConfig()
 
 
-def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None):
+def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None, install_handlers: bool = True):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if args.verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
     control = control or CrawlControl()
-    install_signal_handlers(control, logger)
+    if install_handlers and threading.current_thread() is threading.main_thread():
+        install_signal_handlers(control, logger)
+    elif install_handlers:
+        logger.debug("Skipping signal handler registration; not in main thread.")
     start_pause_watcher(getattr(args, "pause_file", None), control, logger)
 
     telemetry = telemetry_from_args(getattr(args, "metrics_file", None))
