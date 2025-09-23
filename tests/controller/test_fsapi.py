@@ -1,10 +1,11 @@
+import asyncio
 import json
 import pathlib
 from typing import Generator, Tuple, Union
 
 import pytest
 
-from fscrawler.controller.fsapi import FamilySearchAPI, partition_requests
+from fscrawler.controller.fsapi import FamilySearchAPI, StopRequested, ThrottleConfig, partition_requests
 from fscrawler.model import RelationshipType
 from fscrawler.model.graph_memory_impl import GraphMemoryImpl
 
@@ -48,6 +49,9 @@ def fs_api(monkeypatch):
 
         def is_logged_in(self):
             return self.logged
+
+        async def get_urla(self, url):
+            return {}
 
     monkeypatch.setattr("fscrawler.controller.fsapi.Session", DummySession)
     return FamilySearchAPI("user", "password", False)
@@ -99,6 +103,45 @@ class GraphTest(GraphMemoryImpl):
 
     def update_relationship(self, relationship_id: Union[str, Tuple[str, str]], relationship_type: RelationshipType):
         self.results[relationship_id] = relationship_type
+
+
+def test_iterate_honors_stop_request(monkeypatch):
+    class DummySession:
+        def __init__(self, *_, **__):
+            self.counter = 0
+            self.logged = True
+            self.fid = "P1"
+
+        def is_logged_in(self):
+            return True
+
+        async def get_urla(self, url):
+            return {"persons": []}
+
+    monkeypatch.setattr("fscrawler.controller.fsapi.Session", DummySession)
+
+    class Control:
+        stop_reason = "test stop"
+
+        def should_stop(self):
+            return True
+
+        def wait_if_paused(self, *_, **__):
+            pass
+
+    control = Control()
+    throttle = ThrottleConfig(person_batch_size=1, max_concurrent_person_requests=1,
+                              max_concurrent_relationship_requests=1, delay_between_person_batches=0,
+                              delay_between_relationship_batches=0, requests_per_second=0)
+    api = FamilySearchAPI("user", "password", False, throttle=throttle, control=control)
+    graph = GraphTest()
+    graph.seed_frontier_if_empty(["P1"])
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    with pytest.raises(StopRequested):
+        api.iterate(0, graph, loop)
+    loop.stop()
+    loop.close()
 
 
 def test_processing_persons(fs_api, persons_json, bio_relationship_json, step_relationship_json):

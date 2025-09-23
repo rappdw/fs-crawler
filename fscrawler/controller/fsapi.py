@@ -47,6 +47,11 @@ interesting_relationships_gedcomx_types = {"http://gedcomx.org/Couple", "http://
 PartitionedRequest = namedtuple("PartitionedRequest", "number_of_partitions iterator")
 
 
+class StopRequested(Exception):
+    """Raised to indicate that the crawl should stop gracefully."""
+    pass
+
+
 def partition_requests(ids: Iterable, count: int,
                        max_ids_per_request: int = DEFAULT_THROTTLE.person_batch_size,
                        max_concurrent_requests: int = DEFAULT_THROTTLE.max_concurrent_person_requests) -> PartitionedRequest:
@@ -78,8 +83,11 @@ def partition_requests(ids: Iterable, count: int,
 
 class FamilySearchAPI:
 
-    def __init__(self, username, password, verbose=False, timeout=60, throttle: Optional[ThrottleConfig] = None):
+    def __init__(self, username, password, verbose=False, timeout=60,
+                 throttle: Optional[ThrottleConfig] = None,
+                 control: Optional[object] = None):
         self.throttle = throttle or DEFAULT_THROTTLE
+        self.control = control
         self.session = Session(
             username,
             password,
@@ -92,6 +100,7 @@ class FamilySearchAPI:
             backoff_max_seconds=self.throttle.backoff_max_seconds,
         )
         self.rel_set = set()
+        self._stop_exc = StopRequested
 
     def get_counter(self):
         return self.session.counter
@@ -101,6 +110,15 @@ class FamilySearchAPI:
 
     def is_logged_in(self):
         return self.session.logged
+
+    def _enforce_control(self, graph: Graph, iteration: Optional[int] = None):
+        if not self.control:
+            return
+        if hasattr(self.control, "wait_if_paused"):
+            self.control.wait_if_paused(logger, graph, iteration)
+        if hasattr(self.control, "should_stop") and self.control.should_stop():
+            reason = getattr(self.control, "stop_reason", None)
+            raise self._stop_exc(reason or "Stop requested")
 
     @staticmethod
     def get_relationship_type(rel, field, default):
@@ -198,6 +216,7 @@ class FamilySearchAPI:
         )
         for requests in tqdm(partitioned_request.iterator, total=partitioned_request.number_of_partitions,
                              disable=partitioned_request.number_of_partitions == 1):
+            self._enforce_control(graph, None)
             coroutines = [self.get_relationships_from_id(request, graph) for request in requests]
             results = loop.run_until_complete(asyncio.gather(*coroutines, return_exceptions=True))
             for result in results:
@@ -213,9 +232,11 @@ class FamilySearchAPI:
             effective_delay = self.throttle.delay_between_relationship_batches if delay is None else delay
             if effective_delay:
                 time.sleep(effective_delay)
+            self._enforce_control(graph, None)
 
     def iterate(self, iteration: int, graph: Graph, loop):
         graph.start_iteration(iteration)
+        self._enforce_control(graph, iteration)
 
         start = time.time()
 
@@ -239,6 +260,7 @@ class FamilySearchAPI:
                         raise result
                     else:
                         logger.warning(f"Returned unexpected result of type: {type(result)}. Value: {result}")
+            self._enforce_control(graph, iteration)
             if hasattr(graph, "checkpoint"):
                 graph.checkpoint(iteration, "batch")
             if iteration_count > PARTIAL_WRITE_THRESHOLD:
@@ -248,9 +270,11 @@ class FamilySearchAPI:
             else:
                 if self.throttle.delay_between_person_batches:
                     time.sleep(self.throttle.delay_between_person_batches)
+                self._enforce_control(graph, iteration)
 
         duration = time.time() - start
         graph.end_iteration(iteration, duration)
+        self._enforce_control(graph, iteration)
         logger.info(f"\tFinished iteration: {iteration}. Duration: {duration:.2f} s. "
                     f"Graph stats: {graph.get_graph_stats()}")
 

@@ -7,16 +7,128 @@ import logging
 import re
 import signal
 import sys
+import threading
 import time
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Optional
 
 import keyring
 
 from fscrawler.controller import FamilySearchAPI
-from fscrawler.controller.fsapi import ThrottleConfig, DEFAULT_THROTTLE
+from fscrawler.controller.fsapi import ThrottleConfig, DEFAULT_THROTTLE, StopRequested
 from fscrawler.model.graph_db_impl import GraphDbImpl
+
+
+class CrawlControl:
+    def __init__(self):
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self.stop_reason = None
+        self.pause_reason = None
+        self._pause_checkpointed = False
+        self._lock = threading.Lock()
+
+    def request_stop(self, reason: str):
+        with self._lock:
+            if not self._stop_event.is_set():
+                self.stop_reason = reason
+                self._stop_event.set()
+            self._pause_event.clear()
+            self._pause_checkpointed = False
+
+    def request_pause(self, reason: str):
+        with self._lock:
+            self.pause_reason = reason
+            self._pause_event.set()
+
+    def clear_pause(self):
+        with self._lock:
+            if self._pause_event.is_set():
+                self._pause_event.clear()
+                self._pause_checkpointed = False
+                self.pause_reason = None
+
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set()
+
+    def wait_if_paused(self, logger=None, graph=None, iteration=None):
+        if not self._pause_event.is_set():
+            return
+        with self._lock:
+            if not self._pause_checkpointed:
+                if logger:
+                    logger.info("Pause requested%s; checkpointing crawl state...",
+                                f" ({self.pause_reason})" if self.pause_reason else "")
+                if graph and hasattr(graph, "checkpoint"):
+                    checkpoint_iteration = iteration if iteration is not None else getattr(graph, "starting_iter", 0)
+                    graph.checkpoint(checkpoint_iteration, "pause")
+                self._pause_checkpointed = True
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            time.sleep(1)
+        with self._lock:
+            if logger and self._pause_checkpointed and not self._stop_event.is_set():
+                logger.info("Resuming crawl after pause request.")
+            self._pause_checkpointed = False
+
+
+def install_signal_handlers(control: CrawlControl, logger):
+    def handle_stop(signum, _frame):
+        sig_name = getattr(signal, "Signals", lambda s: s)(signum)
+        name = sig_name.name if hasattr(sig_name, "name") else str(signum)
+        logger.info("Received %s; requesting graceful shutdown...", name)
+        control.request_stop(f"signal {name}")
+
+    def handle_pause(signum, _frame):
+        sig_name = getattr(signal, "Signals", lambda s: s)(signum)
+        name = sig_name.name if hasattr(sig_name, "name") else str(signum)
+        if control.should_stop():
+            return
+        if control._pause_event.is_set():
+            logger.info("Received %s; clearing pause request.", name)
+            control.clear_pause()
+        else:
+            logger.info("Received %s; pausing crawl...", name)
+            control.request_pause(f"signal {name}")
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, handle_stop)
+    if hasattr(signal, "SIGUSR2"):
+        try:
+            signal.signal(signal.SIGUSR2, handle_pause)
+        except ValueError:
+            logger.debug("Unable to register SIGUSR2 handler (unsupported platform).")
+
+
+def start_pause_watcher(pause_file: Optional[str], control: CrawlControl, logger):
+    if not pause_file:
+        return None
+    pause_path = Path(pause_file)
+
+    def watcher():
+        last_command = None
+        while not control.should_stop():
+            try:
+                command = pause_path.read_text().strip().lower()
+            except FileNotFoundError:
+                command = ""
+            if command != last_command:
+                if command == "pause":
+                    logger.info("Pause file requested pause.")
+                    control.request_pause("pause-file")
+                elif command == "resume":
+                    logger.info("Pause file requested resume.")
+                    control.clear_pause()
+                elif command == "stop":
+                    logger.info("Pause file requested stop.")
+                    control.request_stop("pause-file stop")
+                last_command = command
+            time.sleep(1)
+
+    thread = threading.Thread(target=watcher, name="pause-watcher", daemon=True)
+    thread.start()
+    return thread
 
 RUN_USAGE = "crawl-fs [run] -u username -p password [options]"
 
@@ -65,6 +177,8 @@ def parse_run_args(argv):
                         help=f"Exponential backoff multiplier [{DEFAULT_THROTTLE.backoff_multiplier}]")
     parser.add_argument("--backoff-max", type=float, dest="backoff_max_seconds",
                         help=f"Maximum backoff delay in seconds [{DEFAULT_THROTTLE.backoff_max_seconds}]")
+    parser.add_argument("--pause-file", type=str,
+                        help="Path to a control file that can contain 'pause', 'resume', or 'stop'")
     parser.add_argument("-?", "--help", action="help", help="Show this help message and exit")
 
     args = parser.parse_args(argv)
@@ -142,13 +256,18 @@ def build_throttle_config(args) -> ThrottleConfig:
     return ThrottleConfig(**overrides) if overrides else ThrottleConfig()
 
 
-def run_crawl(args, resume: bool):
+def run_crawl(args, resume: bool, control: Optional[CrawlControl] = None):
     logging.basicConfig(format='%(asctime)s %(message)s', level=logging.DEBUG if args.verbose else logging.INFO)
     logger = logging.getLogger(__name__)
 
+    control = control or CrawlControl()
+    install_signal_handlers(control, logger)
+    start_pause_watcher(getattr(args, "pause_file", None), control, logger)
+
     logger.info("Login to FamilySearch...")
     throttle_config = build_throttle_config(args)
-    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout, throttle=throttle_config)
+    fs = FamilySearchAPI(args.username, args.password, args.verbose, args.timeout,
+                         throttle=throttle_config, control=control)
     if not fs.is_logged_in():
         sys.exit(2)
 
@@ -162,10 +281,12 @@ def run_crawl(args, resume: bool):
         "verbose": args.verbose,
         "resume": resume,
         "started_at": run_started,
+        "throttle": asdict(throttle_config),
     }
     if args.individuals:
         config_snapshot["cli_individuals"] = args.individuals
-    config_snapshot["throttle"] = asdict(throttle_config)
+    if getattr(args, "pause_file", None):
+        config_snapshot["pause_file"] = str(args.pause_file)
     if hasattr(graph, "record_run_configuration"):
         graph.record_run_configuration(config_snapshot)
 
@@ -193,15 +314,28 @@ def run_crawl(args, resume: bool):
     duration_seconds = 0
     stats = None
     request_count = 0
+    stop_reason = None
     try:
         time_start = time.time()
         for iteration in range(graph.starting_iter, args.hopcount):
-            fs.iterate(iteration, graph, loop)
-        fs.resolve_relationships(graph, loop)
+            if control.should_stop():
+                stop_reason = control.stop_reason or "stop requested"
+                break
+            control.wait_if_paused(logger, graph, iteration)
+            try:
+                fs.iterate(iteration, graph, loop)
+            except StopRequested as exc:
+                stop_reason = str(exc)
+                break
+        if not stop_reason and not control.should_stop():
+            fs.resolve_relationships(graph, loop)
+        else:
+            if hasattr(graph, "checkpoint"):
+                graph.checkpoint(graph.starting_iter, "stop")
         duration_seconds = round(time.time() - time_start)
         stats = graph.get_graph_stats()
         request_count = fs.get_counter()
-        if hasattr(graph, "checkpoint"):
+        if hasattr(graph, "checkpoint") and not control.should_stop():
             final_iteration = max(graph.starting_iter - 1, 0)
             graph.checkpoint(final_iteration, "post-run")
     finally:
@@ -211,12 +345,21 @@ def run_crawl(args, resume: bool):
 
     stats = stats or "unavailable"
 
-    logger.info(
-        "Crawl complete. Graph: %s\n" "duration: %s seconds, HTTP Requests: %s.",
-        stats,
-        f"{duration_seconds:,}",
-        f"{request_count:,}",
-    )
+    if stop_reason:
+        logger.info(
+            "Crawl stopped early (%s). Graph: %s\n" "duration: %s seconds, HTTP Requests: %s.",
+            stop_reason,
+            stats,
+            f"{duration_seconds:,}",
+            f"{request_count:,}",
+        )
+    else:
+        logger.info(
+            "Crawl complete. Graph: %s\n" "duration: %s seconds, HTTP Requests: %s.",
+            stats,
+            f"{duration_seconds:,}",
+            f"{request_count:,}",
+        )
 
 
 def checkpoint_status(args):
@@ -251,7 +394,8 @@ def main():
 
     write_settings_file(args.outdir, args.basename, parser, args, "resume" if resume else "run")
 
-    run_crawl(args, resume=resume)
+    control = CrawlControl()
+    run_crawl(args, resume=resume, control=control)
 
 
 if __name__ == "__main__":

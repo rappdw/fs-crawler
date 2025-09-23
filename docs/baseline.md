@@ -53,6 +53,7 @@ GraphDbImpl.update_relationship() writes final type and commits via end_relation
 - Metadata about configuration, seeds, and checkpoints is stored in the `JOB_METADATA` table so operators can query state via `crawl-fs checkpoint --status` (`fscrawler/model/graph_db_impl.py:268`).
 - CLI enhancements `crawl-fs resume` and `crawl-fs checkpoint --status` surface resumable runs and checkpoint inspection straight from the command line (`fscrawler/crawler.py:124`).
 - Outbound HTTP pacing is centralized in `ThrottleConfig` with configurable concurrency, request-per-second caps, and exponential backoff (`fscrawler/controller/fsapi.py:24`, `fscrawler/controller/session.py:33`). Use CLI flags such as `--requests-per-second` and `--max-concurrent-person-requests` to tune crawl throughput without code changes.
+- Graceful control hooks allow operators to pause (`SIGUSR2` or a pause-file containing `pause`) and stop (`SIGINT`/`SIGTERM` or pause-file `stop`) crawls while checkpointing state before resuming or exiting (`fscrawler/crawler.py:31`).
 - Rate limiting is still hard-coded and global, with no adaptive feedback beyond fixed sleeps (`fsapi.py:186`).
 
 ## Offline Baseline Metrics
