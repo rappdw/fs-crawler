@@ -18,3 +18,20 @@ crawl-fs  --help
 ```
 
 This implementation was inspired by [getmyancestors](https://github.com/Linekio/getmyancestors).
+
+## Commands
+
+- `crawl-fs run` — start a new crawl, seeding from the authenticated account unless `--individuals` are supplied.
+- `crawl-fs resume` — continue a previous crawl, reusing persisted frontier/processing queues.
+- `crawl-fs checkpoint --status` — inspect the latest checkpoint metadata (iteration counters, queue depth, throttle settings).
+
+Key options:
+
+| Flag | Description |
+|------|-------------|
+| `--requests-per-second` | cap outbound HTTP rate (default 6 rps). |
+| `--max-concurrent-person-requests` | limit in-flight person batches (default 40). |
+| `--pause-file` | path to a control file accepting `pause`, `resume`, or `stop`. |
+| `--metrics-file` | write structured JSON telemetry (use `-` for stdout). |
+
+See [docs/operations.md](docs/operations.md) for a full operations guide covering resume workflows, pause control, telemetry ingestion, and recommended throttle tuning.
