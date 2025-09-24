@@ -9,3 +9,5 @@ build
 *.xlsx
 notes.md
 console.sql
+uv.lock
+
