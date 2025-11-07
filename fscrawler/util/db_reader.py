@@ -251,6 +251,7 @@ class RelationshipDbReader(VertexInfo):
         read_vertex = True
         read_edge = True
         i = color = src = dst = None
+        edges_exhausted = False
 
         while True:
             if read_vertex:
@@ -261,6 +262,9 @@ class RelationshipDbReader(VertexInfo):
                     self.graph_builder.add_gender(i, color)
                     read_vertex = False
                 except StopIteration:
+                    # No more vertices to read
+                    if edges_exhausted:
+                        break
                     pass
             if read_edge:
                 try:
@@ -270,13 +274,13 @@ class RelationshipDbReader(VertexInfo):
                     read_edge = False
                 except StopIteration:
                     # we've consumed the last edge, set the src less than zero so that we can process
-                    # the last vertex
+                    # remaining vertices
                     src = -1
-            if src < i:
+                    edges_exhausted = True
+                    read_edge = False
+            if src is not None and i is not None and src < i:
                 self.graph_builder.add_vertex(i, color)
                 read_vertex = True
-                if src < 0:
-                    break
-            else:
+            elif src is not None and i is not None:
                 self.graph_builder.add_edge(src, dst)
                 read_edge = True

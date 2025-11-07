@@ -2,13 +2,18 @@
 
 ## Problem Statement
 
-The `RelationshipDbReader` class in `fscrawler/util/db_reader.py` accepts a `hops` parameter but does not implement hop-based filtering. Currently, it reads the entire database regardless of the specified hop count value, leading to memory allocation errors when working with large graphs.
+The `RelationshipDbReader` class in `fscrawler/util/db_reader.py` HAS an iteration-based hop filtering implementation, but it requires the database to have an `iteration` column populated with hop distances from seed nodes. For databases without this column, it falls back to reading the entire graph.
 
-**Current Behavior:**
-- Line 62 has a `TODO: support hops` comment
-- Line 73 counts ALL vertices: `SELECT COUNT(*) FROM VERTEX`
-- Line 74 counts ALL edges without hop filtering
-- This causes memory issues when the full graph is millions of vertices but the user only needs a subgraph within N hops
+**Current Implementation Status:**
+- ✅ **Implemented:** Iteration-based filtering (lines 68-212)
+  - Filters by `iteration < hops` if iteration data exists
+  - Works well for test databases with iteration column populated
+  - Tests pass: `test_hop_filtering.py`
+  
+- ❌ **Missing:** Dynamic BFS-based filtering for databases without iteration column
+  - Currently falls back to reading entire graph (line 166 warning)
+  - Databases like `rappdw.db` (4.5M vertices) lack iteration data
+  - This causes memory issues when user specifies hop count but database isn't prepared
 
 **Example Error:**
 ```
@@ -18,7 +23,33 @@ with shape (4502136, 4502136) and data type int32
 Expected: ~200x200 graph with hopcount=4
 Actual: 4,502,136 x 4,502,136 graph (entire database)
 
-## Solution Approach
+**Secondary Issue:**
+Even with hop filtering implemented, there's a second memory issue in the canonical ordering computation. The `get_ordering()` method in `RbgGraphBuilder` computes transitive closure, which internally allocates a dense `(N, N)` matrix for the shortest path computation. This means:
+- Graphs larger than `sparse_threshold` (default 1000) will fail during ordering
+- The transitive closure algorithm needs a sparse-output mode
+- Workaround: Skip canonical ordering for large graphs and use identity or topological ordering instead
+
+## Solution Approaches
+
+There are two ways to implement hop filtering:
+
+### Option 1: Iteration Column (Already Implemented ✅)
+- **Status:** Working, but requires database preprocessing
+- **How it works:** Database has `iteration` column storing hop distance from seed nodes
+- **Pros:** Fast (simple WHERE clause), no runtime BFS needed
+- **Cons:** Requires database to be populated with iteration data beforehand
+- **Use case:** Batch processing where database can be prepared in advance
+
+### Option 2: Dynamic BFS Filtering (Needs Implementation ❌)  
+- **Status:** Not implemented, this spec describes the approach
+- **How it works:** At read time, perform BFS to identify vertices within N hops
+- **Pros:** Works with any database, no preprocessing required
+- **Cons:** Slower (BFS at read time), more complex implementation
+- **Use case:** Ad-hoc queries on unprepared databases
+
+**Recommendation:** Implement Option 2 (dynamic BFS) as a fallback when iteration data is not available. This provides the best user experience - hop filtering "just works" regardless of database preparation.
+
+## Detailed Implementation Plan (Option 2: Dynamic BFS)
 
 Implement hop-based filtering using a breadth-first search (BFS) traversal from root node(s) to identify all vertices within N hops, then filter vertices and edges to include only those within the hop limit.
 
@@ -245,6 +276,14 @@ def _get_vertices_within_hops(self, conn, hops: int) -> set:
      - Filter ORDERING table entries to only include vertices in scope
      - Regenerate ordering for filtered subgraph
      - Skip using cached ORDERING when hops filtering is active
+
+7. **Sparse Threshold in GraphBuilder**:
+   - Even with hop filtering, if the filtered graph has > 1000 vertices, it will use sparse representation
+   - However, canonical ordering computation still tries to create dense matrices
+   - For filtered graphs > sparse_threshold, consider:
+     - Skipping canonical ordering and using identity/topological ordering
+     - Implementing sparse transitive closure in redblackgraph
+     - Using alternative ordering algorithms that don't require transitive closure
 
 ### Testing Strategy
 
