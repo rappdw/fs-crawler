@@ -305,7 +305,9 @@ def test_database_schema_created(sample_csv_files):
         'EDGE_SOURCE_IDX',
         'EDGE_DESTINATION_IDX',
         'EDGE_TYPE_IDX',
-        'EDGE_ID_IDX'
+        'EDGE_ID_IDX',
+        'EDGE_TYPE_SOURCE_IDX',
+        'EDGE_TYPE_DEST_IDX'
     ]
     
     for expected_index in expected_indexes:

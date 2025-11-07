@@ -56,6 +56,13 @@ class GraphDbImpl(Graph):
                 self.conn.execute("""
                 CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)
                 """)
+                # Composite indices for optimized queries in db_reader.py
+                self.conn.execute("""
+                CREATE INDEX IF NOT EXISTS EDGE_TYPE_SOURCE_IDX ON EDGE(type, source)
+                """)
+                self.conn.execute("""
+                CREATE INDEX IF NOT EXISTS EDGE_TYPE_DEST_IDX ON EDGE(type, destination)
+                """)
                 self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS FRONTIER_VERTEX (
                     id VARCHAR(8) NOT NULL PRIMARY KEY

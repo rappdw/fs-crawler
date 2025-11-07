@@ -125,6 +125,14 @@ class CSVToDBMigrator:
             CREATE INDEX IF NOT EXISTS EDGE_ID_IDX ON EDGE(id)
             """)
             
+            # Composite indices for optimized queries in db_reader.py
+            conn.execute("""
+            CREATE INDEX IF NOT EXISTS EDGE_TYPE_SOURCE_IDX ON EDGE(type, source)
+            """)
+            conn.execute("""
+            CREATE INDEX IF NOT EXISTS EDGE_TYPE_DEST_IDX ON EDGE(type, destination)
+            """)
+            
             # Create FRONTIER_VERTEX table
             conn.execute("""
             CREATE TABLE IF NOT EXISTS FRONTIER_VERTEX (

@@ -216,10 +216,18 @@ Migration speed depends on the size of your crawl:
 ### Indexes
 
 The script creates indexes on the EDGE table for optimal query performance:
+
+**Single-column indices**:
 - `EDGE_SOURCE_IDX` on `source`
 - `EDGE_DESTINATION_IDX` on `destination`
 - `EDGE_TYPE_IDX` on `type`
 - `EDGE_ID_IDX` on `id`
+
+**Composite indices** (optimized for `db_reader.py` queries):
+- `EDGE_TYPE_SOURCE_IDX` on `(type, source)` - optimizes type-filtered source joins
+- `EDGE_TYPE_DEST_IDX` on `(type, destination)` - optimizes type-filtered destination joins
+
+These composite indices dramatically improve performance for graph reading operations that filter by relationship type (e.g., `AssumedBiological`, `BiologicalParent`, `UnspecifiedParentType`).
 
 ### In-Memory Processing
 
