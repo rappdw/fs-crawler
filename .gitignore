@@ -9,3 +9,6 @@ build
 *.xlsx
 notes.md
 console.sql
+.coverage
+.coverage.xml
+uv.lock
