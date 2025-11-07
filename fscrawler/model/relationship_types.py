@@ -13,7 +13,7 @@ from enum import Enum
 
 
 class RelationshipType(Enum):
-    UNTYPED_PARENT = 'UntypedParent'                # We don't know, type not resolved, assumed to be Biological
+    UNTYPED_PARENT = 'UntypedParent'                # We don't know, type not resolved, assumed to be Biological (primarily due to edges beyond the crawling frontier)
     ASSUMED_BIOLOGICAL = 'AssumedBiological'        # We don't know, won't resolve, assumed to be Biological
     RESOLVE = 'Resolve'                             # Requires resolution
     UNSPECIFIED_PARENT = 'UnspecifiedParentType'    # We've requested type info, but didn't receive any
