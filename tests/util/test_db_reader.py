@@ -13,6 +13,7 @@ class TestGraphBuilder(AbstractGraphBuilder):
         self.idx = None
 
     def init_builder(self, vertex_count: int, edge_count: int):
+        self._init_status(vertex_count, edge_count)
         self.idx = vertex_count + edge_count - 1
         self.val = [0] * (vertex_count + edge_count)
         self.col = [0] * (vertex_count + edge_count)
@@ -23,12 +24,14 @@ class TestGraphBuilder(AbstractGraphBuilder):
         pass
 
     def add_vertex(self, vertex_id: int, color: int):
+        self._track_vertex()
         self.val[self.idx] = color
         self.row[self.idx] = vertex_id
         self.col[self.idx] = vertex_id
         self.idx -= 1
 
     def add_edge(self, source_id: int, dest_id: int):
+        self._track_edge()
         self.val[self.idx] = 3 if self.genders[dest_id] == 1 else 2
         self.row[self.idx] = source_id
         self.col[self.idx] = dest_id
@@ -38,6 +41,7 @@ class TestGraphBuilder(AbstractGraphBuilder):
         self.genders[vertex_id] = color
 
     def build(self):
+        self._build_status()
         return self.row, self.col, self.val
 
 

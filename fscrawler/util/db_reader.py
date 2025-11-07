@@ -1,4 +1,5 @@
 import sqlite3 as sl
+import logging
 from typing import Dict, Sequence, Tuple
 from .abstract_graph import AbstractGraphBuilder, VertexInfo
 
@@ -64,11 +65,14 @@ class RelationshipDbReader(VertexInfo):
         self.db_file = db_file
         self.hops = hops
         self.graph_builder = graph_builder
+        self.logger = logging.getLogger(self.__class__.__name__)
 
     def read(self):
+        self.logger.info(f"Reading relationship database: {self.db_file}")
         conn = sl.connect(self.db_file)
         nv = conn.execute("SELECT COUNT(*) FROM VERTEX").fetchone()[0]
         ne = conn.execute(unordered_edge_count).fetchone()[0]
+        self.logger.info(f"Database contains {nv:,} vertices and {ne:,} edges")
         self.graph_builder.init_builder(nv, ne)
         ordering_table_q = conn.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ORDERING'")
         table_exists = ordering_table_q.fetchone()[0] == 1
@@ -78,11 +82,19 @@ class RelationshipDbReader(VertexInfo):
         if not table_exists or ordering_count != nv:
             # reading the graph using unordered vertices and edges and then, run transitive closure
             # and then canonical ordering
+            self.logger.info("Computing canonical ordering (ordering table not found or outdated)")
             self._read_graph(conn, unordered_vertices, unordered_edges)
+            self.logger.info("Computing ordering...")
             ordering = self.graph_builder.get_ordering()
+            self.logger.info("Saving ordering to database...")
             self.save_ordering(conn, ordering)
+            self.logger.info("Ordering saved successfully")
+        else:
+            self.logger.info("Using existing canonical ordering from database")
         self.graph_builder.init_builder(nv, ne)
+        self.logger.info("Reading ordered graph...")
         self._read_graph(conn, ordered_vertices, ordered_edges)
+        self.logger.info("Graph reading completed")
         return self.graph_builder.build()
 
     @staticmethod
