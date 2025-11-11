@@ -45,6 +45,14 @@ class SimpleGraphBuilder(AbstractGraphBuilder):
             'edge_count': len(self.edges),
             'gender_count': len(self.genders)
         }
+    
+    def save_cache(self, graph, cache_path, metadata: dict):
+        """Stub implementation for testing."""
+        pass
+    
+    def load_cache(self, cache_path, expected_metadata: dict):
+        """Stub implementation for testing."""
+        pass
 
 
 def test_hop_filtering_2():

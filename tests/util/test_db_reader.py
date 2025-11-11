@@ -43,6 +43,14 @@ class TestGraphBuilder(AbstractGraphBuilder):
     def build(self):
         self._build_status()
         return self.row, self.col, self.val
+    
+    def save_cache(self, graph, cache_path, metadata: dict):
+        """Stub implementation for testing."""
+        pass
+    
+    def load_cache(self, cache_path, expected_metadata: dict):
+        """Stub implementation for testing."""
+        pass
 
 
 def test_rel_db():

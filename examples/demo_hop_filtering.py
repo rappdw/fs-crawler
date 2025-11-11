@@ -52,6 +52,14 @@ class DemoGraphBuilder(AbstractGraphBuilder):
             'edges': len(self.edges),
             'genders': len(self.genders)
         }
+    
+    def save_cache(self, graph, cache_path, metadata: dict):
+        """Stub implementation for demo."""
+        pass
+    
+    def load_cache(self, cache_path, expected_metadata: dict):
+        """Stub implementation for demo."""
+        pass
 
 
 if __name__ == '__main__':

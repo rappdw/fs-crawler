@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
+from pathlib import Path
 from typing import Dict, Optional, Sequence, Tuple
 from tqdm import tqdm
 
@@ -98,6 +99,46 @@ class AbstractGraphBuilder(ABC):
 
     @abstractmethod
     def build(self):
+        pass
+    
+    @abstractmethod
+    def save_cache(self, graph, cache_path: Path, metadata: dict):
+        """Save the built graph to a cache file.
+        
+        Args:
+            graph: The graph object to cache (returned from build())
+            cache_path: Path where the cache file should be saved
+            metadata: Dictionary containing metadata like {'hops': int or None}
+        """
+        pass
+    
+    @abstractmethod
+    def load_cache(self, cache_path: Path, expected_metadata: dict):
+        """Load a graph from a cache file.
+        
+        Args:
+            cache_path: Path to the cache file
+            expected_metadata: Dictionary with expected metadata like {'hops': int or None}
+            
+        Returns:
+            The loaded graph object
+            
+        Raises:
+            ValueError: If metadata doesn't match expected values
+        """
+        pass
+    
+    @abstractmethod
+    def is_cache_valid(self, cache_path: Path, reference_path: Path) -> bool:
+        """Check if a cache file exists and is valid.
+        
+        Args:
+            cache_path: Base path for the cache file
+            reference_path: Path to reference file (e.g., database) to compare modification times
+            
+        Returns:
+            True if cache exists and is newer than reference_path, False otherwise
+        """
         pass
     
     def _close_progress_bars(self):

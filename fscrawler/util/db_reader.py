@@ -1,5 +1,7 @@
 import sqlite3 as sl
 import logging
+import time
+from pathlib import Path
 from typing import Dict, Sequence, Tuple
 from .abstract_graph import AbstractGraphBuilder, VertexInfo
 
@@ -152,7 +154,119 @@ class RelationshipDbReader(VertexInfo):
             'vertex_key': filtered_vertex_key,
         }
 
-    def read(self):
+    def compute_ordering(self) -> None:
+        """Compute and save the canonical ordering for the graph.
+        
+        This method should be called before read() if the ordering table doesn't exist
+        or needs to be updated. It reads the unordered graph, computes the canonical
+        ordering, and saves it to the database.
+        """
+        self.logger.info(f"Computing canonical ordering for: {self.db_file}")
+        conn = sl.connect(self.db_file)
+        
+        # Get vertex and edge counts for full graph
+        nv = conn.execute("SELECT COUNT(*) FROM VERTEX").fetchone()[0]
+        ne = conn.execute(unordered_edge_count).fetchone()[0]
+        
+        # Check if ordering already exists and is up to date
+        ordering_table_q = conn.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ORDERING'")
+        table_exists = ordering_table_q.fetchone()[0] == 1
+        ordering_count = 0
+        if table_exists:
+            ordering_count = conn.execute("SELECT COUNT(*) FROM ORDERING").fetchone()[0]
+        
+        if table_exists and ordering_count == nv:
+            self.logger.info("Canonical ordering already exists and is up to date")
+            return
+        
+        # Compute the ordering
+        start_time = time.time()
+        self.logger.info(f"Graph size: {nv:,} vertices and {ne:,} edges")
+        self.graph_builder.init_builder(nv, ne)
+        self.logger.info("Reading unordered graph...")
+        self._read_graph(conn, unordered_vertices, unordered_edges)
+        self.logger.info("Computing ordering...")
+        ordering = self.graph_builder.get_ordering()
+        self.logger.info("Saving ordering to database...")
+        self.save_ordering(conn, ordering)
+        self.logger.info(f"Canonical ordering computed and saved in {time.time() - start_time:.2f} seconds")
+
+    def _get_cache_path(self) -> Path:
+        """Get the cache file path based on the database file and hop filtering."""
+        db_path = Path(self.db_file)
+        if self.hops is not None:
+            cache_name = f"{db_path.stem}_hops{self.hops}.cache"
+        else:
+            cache_name = f"{db_path.stem}.cache"
+        return db_path.parent / cache_name
+
+    def _is_cache_valid(self) -> bool:
+        """Check if the cache file exists and is newer than the database.
+        
+        Delegates to the graph_builder's is_cache_valid method to avoid
+        implementation details leaking into this base class.
+        """
+        cache_path = self._get_cache_path()
+        db_path = Path(self.db_file)
+        
+        # Delegate to graph builder for format-specific validation
+        return self.graph_builder.is_cache_valid(cache_path, db_path)
+
+    def save_cache(self, graph) -> None:
+        """Save the graph to a cache file for fast loading.
+        
+        Args:
+            graph: The built graph object to cache
+        """
+        cache_path = self._get_cache_path()
+        self.logger.info(f"Saving graph cache to: {cache_path}")
+        start_time = time.time()
+        
+        # Delegate to graph builder with metadata
+        metadata = {'hops': self.hops}
+        self.graph_builder.save_cache(graph, cache_path, metadata)
+        
+        self.logger.info(f"Graph cache saved in {time.time() - start_time:.2f} seconds")
+
+    def load_cache(self):
+        """Load the graph from cache file.
+        
+        Returns:
+            The cached graph object
+            
+        Raises:
+            ValueError: If the cached hop count doesn't match the current hop count
+        """
+        cache_path = self._get_cache_path()
+        self.logger.info(f"Loading graph from cache: {cache_path}")
+        start_time = time.time()
+        
+        # Delegate to graph builder with expected metadata
+        expected_metadata = {'hops': self.hops}
+        graph = self.graph_builder.load_cache(cache_path, expected_metadata)
+        
+        self.logger.info(f"Graph loaded from cache in {time.time() - start_time:.2f} seconds")
+        return graph
+
+    def read(self, use_cache: bool = False):
+        """Read the graph from the database using the canonical ordering.
+        
+        Args:
+            use_cache: If True, attempt to load from cache. If cache is invalid or doesn't exist,
+                      read from database and save to cache.
+        
+        Note: This method assumes the canonical ordering has already been computed.
+        Call compute_ordering() first if the ordering table doesn't exist.
+        """
+        # Try to use cache if requested
+        if use_cache:
+            if self._is_cache_valid():
+                try:
+                    return self.load_cache()
+                except (ValueError, Exception) as e:
+                    self.logger.warning(f"Failed to load cache: {e}. Reading from database...")
+            else:
+                self.logger.info("Cache not found or outdated, reading from database...")
         self.logger.info(f"Reading relationship database: {self.db_file}")
         conn = sl.connect(self.db_file)
         
@@ -170,46 +284,26 @@ class RelationshipDbReader(VertexInfo):
             filtered_queries = self._get_filtered_queries(self.hops)
             nv = conn.execute(f"SELECT COUNT(*) FROM VERTEX WHERE iteration < {self.hops}").fetchone()[0]
             ne = conn.execute(filtered_queries['unordered_edge_count']).fetchone()[0]
-            unordered_vert_query = filtered_queries['unordered_vertices']
-            unordered_edge_query = filtered_queries['unordered_edges']
             ordered_vert_query = filtered_queries['ordered_vertices']
             ordered_edge_query = filtered_queries['ordered_edges']
         else:
             nv = conn.execute("SELECT COUNT(*) FROM VERTEX").fetchone()[0]
             ne = conn.execute(unordered_edge_count).fetchone()[0]
-            unordered_vert_query = unordered_vertices
-            unordered_edge_query = unordered_edges
             ordered_vert_query = ordered_vertices
             ordered_edge_query = ordered_edges
         
         self.logger.info(f"Graph size: {nv:,} vertices and {ne:,} edges")
         self.graph_builder.init_builder(nv, ne)
-        ordering_table_q = conn.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='ORDERING'")
-        table_exists = ordering_table_q.fetchone()[0] == 1
-        ordering_count = 0
-        if table_exists:
-            ordering_count = conn.execute("SELECT COUNT(*) FROM ORDERING").fetchone()[0]
-        if not table_exists or ordering_count != nv:
-            # reading the graph using unordered vertices and edges and then, run transitive closure
-            # and then canonical ordering
-            self.logger.info("Computing canonical ordering (ordering table not found or outdated)")
-            self._read_graph(conn, unordered_vert_query, unordered_edge_query)
-            self.logger.info("Computing ordering...")
-            ordering = self.graph_builder.get_ordering()
-            if not use_hop_filtering:
-                # Only save ordering if we're reading the full graph
-                self.logger.info("Saving ordering to database...")
-                self.save_ordering(conn, ordering)
-                self.logger.info("Ordering saved successfully")
-            else:
-                self.logger.info("Skipping ordering save (hop filtering active)")
-        else:
-            self.logger.info("Using existing canonical ordering from database")
-        self.graph_builder.init_builder(nv, ne)
         self.logger.info("Reading ordered graph...")
         self._read_graph(conn, ordered_vert_query, ordered_edge_query)
         self.logger.info("Graph reading completed")
-        return self.graph_builder.build()
+        graph = self.graph_builder.build()
+        
+        # Save to cache if requested
+        if use_cache:
+            self.save_cache(graph)
+        
+        return graph
 
     @staticmethod
     def save_ordering(conn, ordering: Sequence[int]):
