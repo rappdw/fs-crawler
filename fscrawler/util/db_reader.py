@@ -12,7 +12,7 @@ unordered_edge_count = """
     join (
         select VERTEX.ROWID as src_id, destination from VERTEX
         JOIN EDGE on source = VERTEX.ID
-        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
     ) ON VERTEX.id = destination
     order by src_id;
 """
@@ -22,7 +22,7 @@ unordered_edges = """
     join (
         select VERTEX.ROWID as src_id, destination from VERTEX
         JOIN EDGE on source = VERTEX.ID
-        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
     ) ON VERTEX.id = destination
     order by src_id;
 """
@@ -38,7 +38,7 @@ ordered_edges = """
         select position as src_position, destination from VERTEX
         JOIN EDGE on source = VERTEX.ID
         JOIN ORDERING on ORDERING.id = VERTEX.ROWID
-        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+        WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
     ) ON VERTEX.id = destination
     JOIN ORDERING on ORDERING.id = VERTEX.ROWID
     order by src_position DESC, dst_position DESC;
@@ -96,7 +96,7 @@ class RelationshipDbReader(VertexInfo):
             join (
                 select VERTEX.ROWID as src_id, destination from VERTEX
                 JOIN EDGE on source = VERTEX.ID
-                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
                   AND VERTEX.{iteration_filter}
             ) ON VERTEX.id = destination
             WHERE VERTEX.{iteration_filter}
@@ -109,7 +109,7 @@ class RelationshipDbReader(VertexInfo):
             join (
                 select VERTEX.ROWID as src_id, destination from VERTEX
                 JOIN EDGE on source = VERTEX.ID
-                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
                   AND VERTEX.{iteration_filter}
             ) ON VERTEX.id = destination
             WHERE VERTEX.{iteration_filter}
@@ -130,7 +130,7 @@ class RelationshipDbReader(VertexInfo):
                 select position as src_position, destination from VERTEX
                 JOIN EDGE on source = VERTEX.ID
                 JOIN ORDERING on ORDERING.id = VERTEX.ROWID
-                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent')
+                WHERE EDGE.type in ('AssumedBiological', 'UnspecifiedParentType', 'BiologicalParent', 'UntypedParent')
                   AND VERTEX.{iteration_filter}
             ) ON VERTEX.id = destination
             JOIN ORDERING on ORDERING.id = VERTEX.ROWID
@@ -339,7 +339,16 @@ class RelationshipDbReader(VertexInfo):
         return vertex_key
 
     def _read_graph(self, conn, vertex_query, edge_query):
-        vertices = conn.execute(vertex_query)
+        # First pass: collect all vertex genders
+        # This ensures gender info is available when edges are processed
+        vertices_data = conn.execute(vertex_query).fetchall()
+        for vertex in vertices_data:
+            vertex_id = vertex[0] - 1
+            color = vertex[1]
+            self.graph_builder.add_gender(vertex_id, color)
+        
+        # Second pass: process vertices and edges in order
+        vertices = iter(vertices_data)
         edges = conn.execute(edge_query)
 
         read_vertex = True
@@ -353,7 +362,6 @@ class RelationshipDbReader(VertexInfo):
                     vertex = next(vertices)
                     i = vertex[0] - 1
                     color = vertex[1]
-                    self.graph_builder.add_gender(i, color)
                     read_vertex = False
                 except StopIteration:
                     # No more vertices to read
